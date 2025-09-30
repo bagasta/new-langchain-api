@@ -199,6 +199,46 @@ Use `$BASE_URL$API_PREFIX` as the base for all versioned endpoints and include `
     -H "Authorization: Bearer $TOKEN"
   ```
 
+## Web Dashboard (React)
+
+A user dashboard is available under the `dashboard/` directory. It wraps the API endpoints above and does not introduce any new backend logic.
+
+### Prerequisites
+
+```bash
+cd dashboard
+npm install
+```
+
+Create a `.env` file (or export an environment variable) with the API base URL if it differs from the default:
+
+```bash
+echo "VITE_API_BASE_URL=http://localhost:8000" > .env
+```
+
+### Local development
+
+```bash
+npm run dev
+```
+
+The Vite development server defaults to http://localhost:5173 and proxies every request directly to the FastAPI service at `VITE_API_BASE_URL`.
+
+### Production build
+
+```bash
+npm run build
+npm run preview  # optional local preview of the production build
+```
+
+### Available screens
+
+- **Login / Register** – uses `/api/v1/auth/login` and `/api/v1/auth/register` to obtain a JWT before loading the dashboard.
+- **Dashboard** – lists your agents, shows available tools and Google tokens, and surfaces aggregate execution stats.
+- **Agent Detail** – executes prompts via `/api/v1/agents/{agent_id}/execute` and displays the historical records from `/api/v1/agents/{agent_id}/executions`.
+
+All API calls are made through the existing REST endpoints; no additional routes or side effects were introduced.
+
 - **POST /execute**
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/tools/execute" \

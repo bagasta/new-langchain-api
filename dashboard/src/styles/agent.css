@@ -1,0 +1,140 @@
+.agent-page {
+  padding: 2rem clamp(1rem, 2.5vw, 3rem);
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.breadcrumbs a {
+  color: #38bdf8;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.breadcrumbs a:hover {
+  text-decoration: underline;
+}
+
+.agent-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.agent-summary h1 {
+  margin: 0;
+  font-size: 2rem;
+  color: #f8fafc;
+}
+
+.agent-summary-config {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+}
+
+.agent-summary-config .label {
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.agent-summary-config strong {
+  font-size: 1.1rem;
+  color: #e2e8f0;
+}
+
+.execute-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.execute-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: #cbd5f5;
+  font-size: 0.9rem;
+}
+
+.execute-form textarea,
+.execute-form input {
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 209, 0.2);
+  background: rgba(30, 41, 59, 0.7);
+  color: #f8fafc;
+  padding: 0.6rem 0.75rem;
+  resize: vertical;
+}
+
+.execute-form textarea:focus,
+.execute-form input:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 2px;
+}
+
+.execute-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.execute-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.execution-result {
+  background: rgba(30, 41, 59, 0.68);
+  border: 1px solid rgba(148, 163, 209, 0.18);
+  border-radius: 14px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.execution-result h3 {
+  margin: 0;
+}
+
+.execution-result pre {
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.execution-table-wrapper {
+  overflow-x: auto;
+}
+
+.execution-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.execution-table th,
+.execution-table td {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid rgba(148, 163, 209, 0.18);
+  vertical-align: top;
+}
+
+.execution-table pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .execute-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
