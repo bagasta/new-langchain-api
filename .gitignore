@@ -1,0 +1,92 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+.eggs/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage*
+.cache/
+nosetests.xml
+coverage.xml
+.junit.xml
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Django / Flask logs
+*.log
+instance/
+
+# Scrapy
+.scrapy
+
+# Sphinx build
+_docs/
+docs/_build/
+
+# Type checker caches
+.pyre/
+.mypy_cache/
+.pytype/
+.dmypy.json
+dmypy.json
+
+# C extensions
+*.so
+
+# Environment variables
+.env
+.env.*
+*.env
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.iml
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Database / local data
+*.sqlite3
+*.db
+
+# Node / frontend
+node_modules/
+
+# Redis / cache dumps
+*.rdb
+
+# Project-specific
+credential_folder/
+credentials.json
+init.sql
+
+# Temporary files
+*.tmp
+*.temp

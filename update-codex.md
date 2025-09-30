@@ -1,0 +1,25 @@
+# Update Log
+
+- 2025-09-29: Relaxed Gmail draft creation to allow drafts without recipients, adjusted MIME builder to support optional `to` values, and ensured the new JSON-wrapped tool interface remains compatible with LangGraph agents.
+- 2025-09-29: Updated LangGraph tool wrapper to accept either a single JSON string or direct keyword arguments, preventing `_ToolInput` validation errors when the agent omits the `input` key.
+- 2025-09-29: Normalised Gmail draft action routing so requests honoring `action=create_draft` always call the draft API instead of sending immediately; added extra execution logging for returned LangGraph messages.
+- 2025-09-29: Added Google Calendar built-in tool (list/create/get events), wired it into tool service, prompts, and documentation.
+- 2025-09-29: Fixed agent-tool insertion to serialize config payloads as JSON when using raw SQL, preventing PostgreSQL "can't adapt type dict" errors during agent creation.
+- 2025-09-29: Corrected raw SQL insert to cast JSON payloads with `CAST(:config AS jsonb)`, eliminating PostgreSQL syntax errors during agent creation.
+- 2025-09-29: Hardened tool wrapper to treat empty strings as `{}` and return clear guidance when no JSON payload is supplied, avoiding repeated "Invalid JSON input" errors for Google Calendar tool calls.
+- 2025-09-29: Added key-value fallback parsing for tool invocations so natural language strings like `action=list_events` are converted to JSON payloads before execution.
+- 2025-09-29: Ensured Google Calendar tool uses authenticated execution path and maps common shorthand phrases (`"list events"`, etc.) to structured payloads, plus added calendar scopes to the OAuth requirements.
+- 2025-09-29: Updated Google Calendar event time handling to accept pre-structured dict payloads (with `dateTime`/`date` fields) to avoid `'dict' object has no attribute 'strip'` errors during event creation.
+- 2025-09-29: Added attendee normalisation helper to Google Calendar tool so list/tuple/string inputs are accepted when creating events.
+- 2025-09-29: Added attendee email validation in Google Calendar tool to surface clear errors before hitting the Calendar API when emails are malformed.
+- 2025-09-29: Imported the `re` module for Google Calendar email validation to resolve `name 're' is not defined` errors during event creation.
+- 2025-09-29: Added document ingestion endpoint (`POST /api/v1/agents/{id}/documents`) that converts pdf/docx/pptx/txt to cleaned text, chunks it, embeds with OpenAI, and stores vectors in the `embeddings` table; includes new `EmbeddingService` and dependency wiring.
+- 2025-09-29: Document ingestion now accepts optional `chunk_size`, `chunk_overlap`, and `batch_size` form fields and embeds data in token-safe batches to avoid OpenAI 300k token limits.
+- 2025-09-29: Introduced RAG support—ExecutionService now retrieves top 3 similar embeddings per query and appends them to the system prompt context before running the agent.
+- 2025-09-29: Added console log format option (`LOG_FORMAT=console`) rendering agent logs in a human-readable layout (default remains JSON).
+- 2025-09-29: Instrumented RAG flow logging—each retrieval now logs start/end, per-match metadata, and preview content so terminal output shows the full agent RAG process.
+- 2025-09-29: Improved RAG log formatting with bracketed headers and indented key/value pairs for easier terminal readability.
+- 2025-09-29: Fixed RAG logging to avoid Structlog argument conflicts by passing `event` as a keyword-only argument and separating message text from structured fields.
+- 2025-09-29: Added persistent API keys for users—`users.api_key` column with migration, schema updates, and unique constraint so API keys are stored in the database.
+- 2025-09-29: Added automatic chunk-size downsizing for large documents; ingestion now logs adjustments and keeps character counts to prevent oversized embedding requests.
+- 2025-09-29: Added project-wide `.gitignore` covering Python artifacts, editor files, secrets, and generated data.
