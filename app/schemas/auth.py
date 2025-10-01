@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
@@ -13,12 +13,15 @@ class TokenData(BaseModel):
 
 
 class GoogleAuthRequest(BaseModel):
-    email: str
+    email: Optional[str] = None
+    tools: Optional[List[str]] = None
 
 
 class GoogleAuthResponse(BaseModel):
-    auth_url: str
-    state: str
+    auth_required: bool = False
+    auth_url: Optional[str] = None
+    state: Optional[str] = None
+    scopes: List[str] = Field(default_factory=list)
 
 
 class GoogleAuthCallback(BaseModel):
