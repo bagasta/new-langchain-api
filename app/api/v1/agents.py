@@ -23,7 +23,6 @@ from app.schemas.agent import (
     AgentExecuteRequest,
     AgentExecuteResponse,
     AgentCreateResponse,
-    AgentDetailResponse,
 )
 from app.core.logging import logger
 
@@ -42,26 +41,19 @@ async def create_agent(
         agent = agent_service.create_agent(current_user.id, agent_data)
         logger.info("Agent created", agent_id=str(agent.id), user_id=str(current_user.id))
 
-        selected_tools = agent_data.tools or []
-        google_tools = set(auth_service.get_google_tool_names())
-        requires_google_auth = bool(set(selected_tools) & google_tools)
+        google_tools = {"gmail", "google_sheets", "google_calendar"}
+        requires_google_auth = bool(set(agent_data.tools or []) & google_tools)
 
         auth_required = False
         auth_url = None
         auth_state = None
 
         if requires_google_auth:
-            tool_scopes = auth_service.scopes_for_tools(selected_tools)
-
-            # Check if user already has Google auth with required scopes
-            scope_check = auth_service.check_google_auth_scopes(str(current_user.id), tool_scopes)
-
-            if not scope_check["has_auth"] or not scope_check["scopes_covered"]:
-                if scope_check["has_auth"] and not scope_check["scopes_covered"]:
-                    auth_service.revoke_google_auth(str(current_user.id))
-
+            tokens = auth_service.get_user_auth_tokens(str(current_user.id))
+            has_google = any(token.service == "google" for token in tokens)
+            if not has_google:
                 auth_data = auth_service.create_google_auth_url(
-                    str(current_user.id), tool_scopes
+                    str(current_user.id), DEFAULT_GOOGLE_SCOPES
                 )
                 auth_required = True
                 auth_url = auth_data.get("auth_url")
@@ -95,60 +87,15 @@ async def get_user_agents(
     return agents
 
 
-@router.get("/{agent_id}", response_model=AgentDetailResponse)
+@router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    agent_service: AgentService = Depends(get_agent_service),
-    auth_service: AuthService = Depends(get_auth_service),
+    agent_service: AgentService = Depends(get_agent_service)
 ):
-    """Get a specific agent with its tools"""
+    """Get a specific agent"""
     agent = agent_service.get_agent(agent_id, current_user.id)
-    tools = agent_service.get_agent_tools(agent_id, current_user.id)
-
-    tool_names = [tool.name for tool in tools]
-    google_tools = set(auth_service.get_google_tool_names())
-
-    auth_required = False
-    auth_url = None
-    auth_state = None
-
-    if set(tool_names) & google_tools:
-        tool_scopes = auth_service.scopes_for_tools(tool_names)
-        scope_check = auth_service.check_google_auth_scopes(str(current_user.id), tool_scopes)
-
-        if not scope_check["has_auth"] or not scope_check["scopes_covered"]:
-            if scope_check["has_auth"] and not scope_check["scopes_covered"]:
-                auth_service.revoke_google_auth(str(current_user.id))
-
-            auth_data = auth_service.create_google_auth_url(str(current_user.id), tool_scopes)
-            auth_required = True
-            auth_url = auth_data.get("auth_url")
-            auth_state = auth_data.get("state")
-
-    # Create response with tools
-    return {
-        "id": agent.id,
-        "user_id": agent.user_id,
-        "name": agent.name,
-        "config": agent.config,
-        "status": agent.status,
-        "created_at": agent.created_at,
-        "updated_at": agent.updated_at,
-        "tools": [
-            {
-                "id": tool.id,
-                "name": tool.name,
-                "description": tool.description,
-                "tool_schema": tool.schema,
-                "type": tool.type
-            }
-            for tool in tools
-        ],
-        "auth_required": auth_required,
-        "auth_url": auth_url,
-        "auth_state": auth_state,
-    }
+    return agent
 
 
 @router.put("/{agent_id}", response_model=AgentResponse)

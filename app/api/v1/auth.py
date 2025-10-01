@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-from typing import Dict, Any, Optional, Sequence
+from typing import Dict, Any, Optional
 from uuid import UUID
 import base64
 import json
@@ -110,49 +110,20 @@ async def register(
 
 
 async def _init_google_auth(
-    current_user: User,
-    auth_service: AuthService,
-    tools: Optional[Sequence[str]] = None,
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service)
 ):
     """Shared helper for initiating Google OAuth authentication."""
     try:
-        # Prefer tool-specific scopes when provided, otherwise fall back to defaults
-        scope_list = auth_service.scopes_for_tools(tools or [])
-
-        scope_check = auth_service.check_google_auth_scopes(str(current_user.id), scope_list)
-
-        if scope_check["has_auth"] and scope_check["scopes_covered"]:
-            logger.info(
-                "Google auth already covers required scopes",
-                user_id=str(current_user.id),
-            )
-            return GoogleAuthResponse(
-                auth_required=False,
-                auth_url=None,
-                state=None,
-                scopes=scope_list,
-            )
-
-        if scope_check["has_auth"] and not scope_check["scopes_covered"]:
-            logger.info(
-                "Revoking existing Google auth to renew scopes",
-                user_id=str(current_user.id),
-                missing_scopes=scope_check["missing_scopes"],
-            )
-            auth_service.revoke_google_auth(str(current_user.id))
-
+        # For demo purposes, we'll use some default scopes
+        # In production, these should be determined by the tools the user wants to use
         auth_response = auth_service.create_google_auth_url(
-            str(current_user.id), scope_list
+            str(current_user.id), DEFAULT_GOOGLE_SCOPES
         )
 
         logger.info("Google auth initiated", user_id=str(current_user.id))
 
-        return GoogleAuthResponse(
-            auth_required=True,
-            auth_url=auth_response.get("auth_url"),
-            state=auth_response.get("state"),
-            scopes=scope_list,
-        )
+        return auth_response
 
     except HTTPException as exc:
         logger.warning("Google auth initiation failed", error=str(exc.detail), user_id=str(current_user.id))
@@ -172,20 +143,16 @@ async def google_auth_post(
     auth_service: AuthService = Depends(get_auth_service)
 ):
     """Initiate Google OAuth authentication (POST)."""
-    tools = request.tools or []
-    return await _init_google_auth(current_user, auth_service, tools)
+    return await _init_google_auth(current_user, auth_service)
 
 
 @router.get("/google/auth", response_model=GoogleAuthResponse)
 async def google_auth_get(
-    http_request: Request,
     current_user: User = Depends(get_current_user),
     auth_service: AuthService = Depends(get_auth_service)
 ):
     """Initiate Google OAuth authentication (GET for clickable links)."""
-    tools_param = http_request.query_params.get("tools")
-    tools = [tool.strip() for tool in tools_param.split(",") if tool.strip()] if tools_param else None
-    return await _init_google_auth(current_user, auth_service, tools)
+    return await _init_google_auth(current_user, auth_service)
 
 
 async def process_google_callback(
@@ -206,19 +173,15 @@ async def process_google_callback(
             except Exception:
                 logger.warning("Failed to decode Google OAuth state", state=state)
 
-        # Use scopes from state first (most important - these are the ones originally requested)
+        scopes = DEFAULT_GOOGLE_SCOPES
         state_scopes = state_data.get("s") if state_data else None
         if state_scopes:
             scopes = normalize_scopes(state_scopes)
         elif scope:
             scopes = normalize_scopes(scope.split())
-        else:
-            scopes = DEFAULT_GOOGLE_SCOPES
-
-        required_scopes = normalize_scopes(scopes)
 
         # Exchange code for tokens
-        token_data = auth_service.exchange_google_code(code, state, required_scopes)
+        token_data = auth_service.exchange_google_code(code, state, scopes)
 
         user = None
         user_id_from_state = None
@@ -239,58 +202,18 @@ async def process_google_callback(
             temp_password = secrets.token_urlsafe(32)
             user = auth_service.create_user(token_data["email"], temp_password)
 
-        granted_scopes_raw = token_data.get("scope") or []
-        if isinstance(granted_scopes_raw, str):
-            granted_scopes = normalize_scopes(granted_scopes_raw.split())
-        else:
-            granted_scopes = normalize_scopes(granted_scopes_raw)
+        # Save auth token
+        auth_service.save_auth_token(str(user.id), token_data)
 
-        missing_scopes = [scope for scope in required_scopes if scope not in granted_scopes]
-
-        auth_required = False
-        auth_url = None
-        auth_state_resp = None
-
-        if missing_scopes:
-            logger.warning(
-                "Google authentication incomplete",
-                user_id=str(user.id),
-                missing_scopes=missing_scopes,
-            )
-            auth_service.revoke_google_auth(str(user.id))
-            auth_data = auth_service.create_google_auth_url(str(user.id), required_scopes)
-            auth_required = True
-            auth_url = auth_data.get("auth_url")
-            auth_state_resp = auth_data.get("state")
-        else:
-            auth_service.save_auth_token(str(user.id), token_data)
-
-        # Create access token for API authentication
+        # Create access token
         access_token = auth_service.create_access_token(str(user.id))
 
-        logger.info(
-            "Google OAuth callback processed",
-            user_id=str(user.id),
-            auth_required=auth_required,
-            missing_scopes=missing_scopes,
-        )
-
-        message = (
-            "Additional Google permissions are required. Please re-authenticate."
-            if auth_required
-            else "Google authentication successful"
-        )
+        logger.info("Google OAuth callback processed", user_id=str(user.id))
 
         return {
-            "message": message,
+            "message": "Google authentication successful",
             "access_token": access_token,
-            "token_type": "bearer",
-            "auth_required": auth_required,
-            "auth_url": auth_url,
-            "auth_state": auth_state_resp,
-            "scopes": required_scopes,
-            "granted_scopes": granted_scopes,
-            "missing_scopes": missing_scopes,
+            "token_type": "bearer"
         }
 
     except HTTPException as exc:
@@ -314,33 +237,6 @@ async def google_callback(
 ):
     """Handle Google OAuth callback"""
     return await process_google_callback(code, state, db, auth_service, scope)
-
-
-@router.delete("/google/revoke")
-async def revoke_google_auth(
-    current_user: User = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service)
-):
-    """Revoke Google authentication to allow re-authentication with different scopes"""
-    try:
-        success = auth_service.revoke_google_auth(str(current_user.id))
-        if success:
-            logger.info("Google auth revoked", user_id=str(current_user.id))
-            return {"message": "Google authentication revoked successfully"}
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to revoke Google authentication"
-            )
-    except HTTPException as exc:
-        logger.warning("Google auth revocation failed", error=str(exc.detail), user_id=str(current_user.id))
-        raise exc
-    except Exception as e:
-        logger.error("Google auth revocation failed", error=str(e), user_id=str(current_user.id))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to revoke Google authentication: {str(e)}"
-        )
 
 
 @router.get("/me")

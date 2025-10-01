@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LangChain API Playground</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>LangChain API Playground</h1>
+      <p>Interactive testing environment for the LangChain Agent API endpoints</p>
+    </header>
+
+    <main>
+      <!-- Testing Flow Section -->
+      <section class="card" id="testing-flow">
+        <h2>🧪 Guided Testing Flow</h2>
+        <div class="testing-flow">
+          <div class="flow-steps">
+            <div class="flow-step" data-step="register">
+              <div class="step-number">1</div>
+              <div class="step-content">
+                <div class="step-title">Register User</div>
+                <div class="step-description">Create a new user account to get started</div>
+              </div>
+              <div class="step-status pending">Pending</div>
+            </div>
+            <div class="flow-step" data-step="login">
+              <div class="step-number">2</div>
+              <div class="step-content">
+                <div class="step-title">Login</div>
+                <div class="step-description">Authenticate with your credentials</div>
+              </div>
+              <div class="step-status pending">Pending</div>
+            </div>
+            <div class="flow-step" data-step="agent">
+              <div class="step-number">3</div>
+              <div class="step-content">
+                <div class="step-title">Create Agent</div>
+                <div class="step-description">Set up an AI agent with Gmail tools</div>
+              </div>
+              <div class="step-status pending">Pending</div>
+            </div>
+            <div class="flow-step" data-step="execute">
+              <div class="step-number">4</div>
+              <div class="step-content">
+                <div class="step-title">Execute Agent</div>
+                <div class="step-description">Test your agent with sample tasks</div>
+              </div>
+              <div class="step-status pending">Pending</div>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="btn-run-flow" class="success">🚀 Run Full Flow</button>
+            <button id="btn-reset-flow" class="warning">🔄 Reset Flow</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="configuration">
+        <h2>Configuration</h2>
+        <div class="field">
+          <label for="base-url">Base URL</label>
+          <input
+            id="base-url"
+            type="text"
+            value="http://localhost:8000/api/v1"
+            placeholder="http://localhost:8000/api/v1"
+          />
+        </div>
+        <div class="field token-field">
+          <label for="auth-token">Bearer Token</label>
+          <input
+            id="auth-token"
+            type="text"
+            autocomplete="off"
+            placeholder="Paste an access token or use Login/Register"
+          />
+          <button id="clear-token" type="button">Clear</button>
+        </div>
+        <p class="hint">
+          Most routes require an access token. Obtain one via the login or register actions below and it will fill in automatically.
+        </p>
+      </section>
+
+      <section class="card-group" id="authentication">
+        <h2>Authentication</h2>
+        <div class="card">
+          <h3>Login</h3>
+          <form id="form-login">
+            <div class="field">
+              <label for="login-email">Email</label>
+              <input id="login-email" type="email" required />
+            </div>
+            <div class="field">
+              <label for="login-password">Password</label>
+              <input id="login-password" type="password" required />
+            </div>
+            <button type="submit">Log In</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Register</h3>
+          <form id="form-register">
+            <div class="field">
+              <label for="register-email">Email</label>
+              <input id="register-email" type="email" required />
+            </div>
+            <div class="field">
+              <label for="register-password">Password</label>
+              <input id="register-password" type="password" required />
+            </div>
+            <button type="submit">Register</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Profile</h3>
+          <div class="actions">
+            <button id="btn-auth-me" type="button">Get Current User</button>
+            <button id="btn-auth-tokens" type="button">List Tokens</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Google OAuth</h3>
+          <form id="form-google-auth">
+            <div class="field">
+              <label for="google-email">Email</label>
+              <input id="google-email" type="email" required />
+            </div>
+            <button type="submit">Create Auth URL</button>
+          </form>
+          <form id="form-google-callback">
+            <div class="field">
+              <label for="google-code">Code</label>
+              <input id="google-code" type="text" required />
+            </div>
+            <div class="field">
+              <label for="google-state">State</label>
+              <input id="google-state" type="text" required />
+            </div>
+            <button type="submit">Process Callback</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="card-group" id="agents">
+        <h2>Agents</h2>
+        <div class="card">
+          <h3>Create Agent</h3>
+          <form id="form-agent-create">
+            <div class="field">
+              <label for="agent-name">Name</label>
+              <input id="agent-name" type="text" required />
+            </div>
+            <div class="field">
+              <label for="agent-tools">Tools (comma separated IDs)</label>
+              <input id="agent-tools" type="text" placeholder="tool-id-1,tool-id-2" />
+            </div>
+            <fieldset>
+              <legend>Config</legend>
+              <div class="field">
+                <label for="agent-model">LLM Model</label>
+                <input id="agent-model" type="text" value="gpt-3.5-turbo" />
+              </div>
+              <div class="field">
+                <label for="agent-temperature">Temperature</label>
+                <input id="agent-temperature" type="number" min="0" max="2" step="0.1" value="0.7" />
+              </div>
+              <div class="field">
+                <label for="agent-max-tokens">Max Tokens</label>
+                <input id="agent-max-tokens" type="number" min="1" value="1000" />
+              </div>
+              <div class="field">
+                <label for="agent-memory">Memory Type</label>
+                <input id="agent-memory" type="text" value="buffer" />
+              </div>
+              <div class="field">
+                <label for="agent-strategy">Reasoning Strategy</label>
+                <input id="agent-strategy" type="text" value="react" />
+              </div>
+            </fieldset>
+            <button type="submit">Create</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Manage Agent</h3>
+          <form id="form-agent-get">
+            <div class="field">
+              <label for="agent-id">Agent ID</label>
+              <input id="agent-id" type="text" required />
+            </div>
+            <div class="actions">
+              <button type="button" id="btn-agent-fetch">Fetch</button>
+              <button type="button" id="btn-agent-delete">Delete</button>
+            </div>
+          </form>
+          <form id="form-agent-update">
+            <div class="field">
+              <label for="agent-update-name">New Name</label>
+              <input id="agent-update-name" type="text" placeholder="Leave blank to skip" />
+            </div>
+            <div class="field">
+              <label for="agent-update-status">Status</label>
+              <select id="agent-update-status">
+                <option value="">-- unchanged --</option>
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="INACTIVE">INACTIVE</option>
+                <option value="DELETED">DELETED</option>
+              </select>
+            </div>
+            <button type="submit">Update</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Agent Executions</h3>
+          <form id="form-agent-execute">
+            <div class="field">
+              <label for="execute-agent-id">Agent ID</label>
+              <input id="execute-agent-id" type="text" required />
+            </div>
+            <div class="field">
+              <label for="execute-input">Input</label>
+              <textarea id="execute-input" rows="3" required>Summarize the latest AI news.</textarea>
+            </div>
+            <div class="field">
+              <label for="execute-params">Parameters (JSON)</label>
+              <textarea id="execute-params" rows="3" placeholder='{"max_steps": 5}'></textarea>
+            </div>
+            <button type="submit">Trigger Execution</button>
+          </form>
+          <div class="actions">
+            <button id="btn-agent-executions" type="button">List Executions</button>
+            <button id="btn-agent-stats" type="button">Execution Stats</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>List Agents</h3>
+          <button id="btn-agents-list" type="button">Fetch My Agents</button>
+        </div>
+      </section>
+
+      <section class="card-group" id="tools">
+        <h2>Tools</h2>
+        <div class="card">
+          <h3>List Tools</h3>
+          <form id="form-tools-list">
+            <div class="field">
+              <label for="tools-type">Tool Type</label>
+              <input id="tools-type" type="text" placeholder="CUSTOM or BUILTIN" />
+            </div>
+            <button type="submit">Fetch Tools</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Create Tool</h3>
+          <form id="form-tool-create">
+            <div class="field">
+              <label for="tool-name">Name</label>
+              <input id="tool-name" type="text" required />
+            </div>
+            <div class="field">
+              <label for="tool-description">Description</label>
+              <textarea id="tool-description" rows="2"></textarea>
+            </div>
+            <div class="field">
+              <label for="tool-schema">Schema (JSON)</label>
+              <textarea id="tool-schema" rows="5" required>{
+  "type": "object",
+  "properties": {
+    "query": {"type": "string"}
+  },
+  "required": ["query"]
+}</textarea>
+            </div>
+            <div class="field">
+              <label for="tool-type">Type</label>
+              <select id="tool-type">
+                <option value="CUSTOM" selected>CUSTOM</option>
+                <option value="BUILTIN">BUILTIN</option>
+              </select>
+            </div>
+            <button type="submit">Create Tool</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Manage Tool</h3>
+          <form id="form-tool-manage">
+            <div class="field">
+              <label for="tool-id">Tool ID</label>
+              <input id="tool-id" type="text" required />
+            </div>
+            <div class="actions">
+              <button id="btn-tool-fetch" type="button">Fetch</button>
+              <button id="btn-tool-delete" type="button">Delete</button>
+            </div>
+          </form>
+          <form id="form-tool-update">
+            <div class="field">
+              <label for="tool-update-description">Description</label>
+              <textarea id="tool-update-description" rows="2"></textarea>
+            </div>
+            <div class="field">
+              <label for="tool-update-schema">Schema (JSON)</label>
+              <textarea id="tool-update-schema" rows="5"></textarea>
+            </div>
+            <button type="submit">Update Tool</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Execute Tool</h3>
+          <form id="form-tool-execute">
+            <div class="field">
+              <label for="execute-tool-id">Tool ID</label>
+              <input id="execute-tool-id" type="text" required />
+            </div>
+            <div class="field">
+              <label for="execute-tool-params">Parameters (JSON)</label>
+              <textarea id="execute-tool-params" rows="4" required>{
+  "query": "latest unread",
+  "max_results": 5
+}</textarea>
+            </div>
+            <button type="submit">Execute</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Metadata</h3>
+          <form id="form-tool-schema">
+            <div class="field">
+              <label for="schema-tool-name">Tool Name</label>
+              <input id="schema-tool-name" type="text" required />
+            </div>
+            <button type="submit">Get Schema</button>
+          </form>
+          <form id="form-tool-scopes">
+            <div class="field">
+              <label for="scope-tools">Tools (comma separated)</label>
+              <input id="scope-tools" type="text" required />
+            </div>
+            <button type="submit">Get Required Scopes</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="card" id="response-log">
+        <h2>Response Log</h2>
+        <div class="response-header">
+          <div class="status-indicator info" id="response-status">
+            <span>⏳</span>
+            <span>Waiting for request…</span>
+          </div>
+          <div class="actions">
+            <button id="clear-response" type="button">Clear</button>
+            <button id="copy-response" type="button">📋 Copy</button>
+          </div>
+        </div>
+        <pre id="response-output"></pre>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Remember to start the FastAPI server (<code>uvicorn app.main:app --reload</code>) and ensure your
+        <code>.env</code> secrets are configured before testing requests.
+      </p>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -3,12 +3,7 @@
     "allow": [
       "Bash(pip install:*)",
       "Bash(pip:*)",
-      "Bash(python:*)",
-      "Bash(npm run build:*)",
-      "Bash(curl:*)",
-      "Bash(pkill:*)",
-      "Bash(lsof:*)",
-      "Bash(xargs:*)"
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

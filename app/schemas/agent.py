@@ -59,34 +59,6 @@ class AgentExecuteResponse(BaseModel):
     session_id: Optional[str] = None
 
 
-class AgentToolDetail(BaseModel):
-    id: UUID
-    name: str
-    description: Optional[str] = None
-    tool_schema: Dict[str, Any]
-    type: str
-
-    class Config:
-        from_attributes = True
-
-
-class AgentDetailResponse(BaseModel):
-    id: UUID
-    user_id: UUID
-    name: str
-    config: Dict[str, Any]
-    status: AgentStatus
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    tools: List[AgentToolDetail] = []
-    auth_required: bool = False
-    auth_url: Optional[str] = None
-    auth_state: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
-
 class AgentCreateResponse(AgentResponse):
     auth_required: bool = False
     auth_url: Optional[str] = None
