@@ -74,18 +74,26 @@ def test_google_auth_endpoints(client, monkeypatch):
 
     fake_state = "state-token"
 
+    captured_scopes: list[list[str]] = []
+
     def fake_create_google_auth_url(self, user_id: str, scopes):
         assert user_id
         assert scopes
+        captured_scopes.append(list(scopes))
         return {"auth_url": "https://accounts.example.com/oauth", "state": fake_state}
 
-    def fake_exchange_google_code(self, code: str, state: str):
+    def fake_exchange_google_code(self, code: str, state: str, scopes=None):
         assert code
         assert state == fake_state
+        if scopes is not None:
+            assert isinstance(scopes, list)
+            granted = list(scopes)
+        else:
+            granted = ["scope1", "scope2"]
         return {
             "access_token": "google-access",
             "refresh_token": "google-refresh",
-            "scope": ["scope1", "scope2"],
+            "scope": granted,
             "expires_at": datetime.utcnow() + timedelta(hours=1),
             "email": f"google_{uuid.uuid4().hex}@example.com",
         }
@@ -100,13 +108,34 @@ def test_google_auth_endpoints(client, monkeypatch):
     )
     assert auth_resp.status_code == 200
     auth_data = auth_resp.json()
+    assert auth_data["auth_required"] is True
     assert auth_data["state"] == fake_state
+    assert auth_data["auth_url"]
+    assert captured_scopes[-1]
+    assert "https://www.googleapis.com/auth/userinfo.email" in captured_scopes[-1]
+
+    auth_tools_resp = client.post(
+        f"{API_PREFIX}/auth/google/auth",
+        headers=headers,
+        json={"tools": ["gmail", "google_sheets"]},
+    )
+    assert auth_tools_resp.status_code == 200
+    tools_data = auth_tools_resp.json()
+    assert tools_data["auth_required"] is True
+    assert tools_data["state"] == fake_state
+    tools_scopes = captured_scopes[-1]
+    assert "https://www.googleapis.com/auth/gmail.send" in tools_scopes
+    assert "https://www.googleapis.com/auth/spreadsheets" in tools_scopes
+    assert "openid" in tools_scopes
 
     get_auth_resp = client.get(
         f"{API_PREFIX}/auth/google/auth", headers=headers
     )
     assert get_auth_resp.status_code == 200
-    assert get_auth_resp.json()["state"] == fake_state
+    get_auth_data = get_auth_resp.json()
+    assert get_auth_data["auth_required"] is True
+    assert get_auth_data["state"] == fake_state
+    assert "https://www.googleapis.com/auth/userinfo.profile" in captured_scopes[-1]
 
     callback_resp = client.get(
         f"{API_PREFIX}/auth/google/callback",
@@ -115,6 +144,75 @@ def test_google_auth_endpoints(client, monkeypatch):
     assert callback_resp.status_code == 200
     callback_data = callback_resp.json()
     assert "access_token" in callback_data
+    assert callback_data["auth_required"] is False
+    assert callback_data["auth_url"] is None
+    assert callback_data["missing_scopes"] == []
+
+
+def test_google_callback_requests_additional_auth_when_scopes_missing(client, monkeypatch):
+    creds = _register_user(client)
+    headers = _auth_headers(creds["token"])
+
+    url_calls = []
+
+    def fake_create_google_auth_url(self, user_id: str, scopes):
+        call_number = len(url_calls) + 1
+        result = {
+            "auth_url": f"https://accounts.example.com/oauth?call={call_number}",
+            "state": f"state-{call_number}",
+        }
+        url_calls.append({"user_id": user_id, "scopes": list(scopes), "result": result})
+        return result
+
+    def fake_exchange_google_code(self, code: str, state: str, scopes=None):
+        assert scopes is not None
+        return {
+            "access_token": "google-access",
+            "refresh_token": "google-refresh",
+            "scope": [scopes[0]],  # return a subset to simulate missing scopes
+            "expires_at": datetime.utcnow() + timedelta(hours=1),
+            "email": f"google_{uuid.uuid4().hex}@example.com",
+        }
+
+    save_called = {"value": False}
+
+    def fake_save_auth_token(self, user_id: str, token_data):
+        save_called["value"] = True
+
+    revoked_calls = {"count": 0}
+
+    def fake_revoke(self, user_id: str):
+        revoked_calls["count"] += 1
+        return True
+
+    monkeypatch.setattr(AuthService, "create_google_auth_url", fake_create_google_auth_url)
+    monkeypatch.setattr(AuthService, "exchange_google_code", fake_exchange_google_code)
+    monkeypatch.setattr(AuthService, "save_auth_token", fake_save_auth_token)
+    monkeypatch.setattr(AuthService, "revoke_google_auth", fake_revoke)
+
+    # Initial auth request to obtain state
+    auth_resp = client.post(
+        f"{API_PREFIX}/auth/google/auth",
+        headers=headers,
+        json={"tools": ["gmail", "google_sheets"]},
+    )
+    assert auth_resp.status_code == 200
+    auth_payload = auth_resp.json()
+    assert auth_payload["auth_required"] is True
+    initial_state = auth_payload["state"]
+
+    # Callback with partial scopes granted
+    callback_resp = client.get(
+        f"{API_PREFIX}/auth/google/callback",
+        params={"code": "test-code", "state": initial_state},
+    )
+    assert callback_resp.status_code == 200
+    callback_data = callback_resp.json()
+    assert callback_data["auth_required"] is True
+    assert callback_data["auth_url"].endswith("call=2")
+    assert callback_data["missing_scopes"]
+    assert revoked_calls["count"] == 1
+    assert save_called["value"] is False
 
 
 def test_tool_endpoints(client, tmp_path):
@@ -292,3 +390,66 @@ def test_agent_endpoints(client):
 
     missing_resp = client.get(f"{API_PREFIX}/agents/{agent_id}", headers=headers)
     assert missing_resp.status_code == 404
+
+
+def test_agent_detail_requires_google_auth(client, monkeypatch):
+    creds = _register_user(client)
+    headers = _auth_headers(creds["token"])
+
+    call_counter = {"count": 0, "revoked": 0, "checks": 0}
+
+    def fake_scopes_for_tools(self, tools):
+        assert "gmail" in tools
+        return ["scope:gmail"]
+
+    def fake_check_scopes(self, user_id: str, required_scopes):
+        assert required_scopes == ["scope:gmail"]
+        call_counter["checks"] += 1
+        if call_counter["checks"] == 1:
+            return {"has_auth": False, "scopes_covered": False, "missing_scopes": required_scopes}
+        return {"has_auth": True, "scopes_covered": False, "missing_scopes": required_scopes}
+
+    def fake_create_google_auth_url(self, user_id: str, scopes):
+        call_counter["count"] += 1
+        return {
+            "auth_url": f"https://accounts.example.com/oauth?count={call_counter['count']}",
+            "state": f"state-{call_counter['count']}"
+        }
+
+    def fake_revoke(self, user_id: str):
+        call_counter["revoked"] += 1
+        return True
+
+    monkeypatch.setattr(AuthService, "scopes_for_tools", fake_scopes_for_tools)
+    monkeypatch.setattr(AuthService, "check_google_auth_scopes", fake_check_scopes)
+    monkeypatch.setattr(AuthService, "create_google_auth_url", fake_create_google_auth_url)
+    monkeypatch.setattr(AuthService, "revoke_google_auth", fake_revoke)
+
+    create_resp = client.post(
+        f"{API_PREFIX}/agents/",
+        headers=headers,
+        json={
+            "name": "Google Agent",
+            "tools": ["gmail"],
+            "config": {
+                "llm_model": "gpt-4o-mini",
+                "temperature": 0.3,
+                "max_tokens": 256,
+                "memory_type": "buffer",
+                "reasoning_strategy": "react",
+            },
+        },
+    )
+    assert create_resp.status_code == 200
+    agent_data = create_resp.json()
+    assert agent_data["auth_required"] is True
+    assert agent_data["auth_url"].endswith("count=1")
+    assert agent_data["auth_state"] == "state-1"
+
+    detail_resp = client.get(f"{API_PREFIX}/agents/{agent_data['id']}", headers=headers)
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert detail["auth_required"] is True
+    assert detail["auth_url"].endswith("count=2")
+    assert detail["auth_state"] == "state-2"
+    assert call_counter["revoked"] == 1

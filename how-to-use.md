@@ -3,7 +3,7 @@
 The examples below assume the FastAPI server is running locally on port 8000. Update the variables if your deployment differs.
 
 ```bash
-export BASE_URL="http://localhost:8000"
+export BASE_URL="https://lfzlwlbz-8000.asse.devtunnels.ms"
 export API_PREFIX="/api/v1"  # Adjust if you change API_V1_STR or router prefixes
 export TOKEN="paste-your-jwt-here"
 ```
@@ -41,13 +41,21 @@ Use `$BASE_URL$API_PREFIX` as the base for all versioned endpoints and include `
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{
-          "email": "user@example.com"
+          "tools": ["gmail", "google_sheets"]
         }'
   ```
+  When new scopes are required the response includes `{"auth_required": true, "auth_url": "...", "state": "..."}`; otherwise `auth_required` is `false`, indicating your current Google connection already covers the requested tools.
 
 - **GET /google/callback**
   ```bash
   curl "$BASE_URL$API_PREFIX/auth/google/callback?code=auth-code-from-google&state=state-token" \
+    -H "Authorization: Bearer $TOKEN"
+  ```
+  On success the payload includes `auth_required`, `auth_url`, and `missing_scopes`. If `auth_required` is `true`, Google only granted a subset of the requested permissions—follow the returned `auth_url` to complete the consent flow again.
+
+- **GET /google/auth** (optional `tools` query parameter)
+  ```bash
+  curl "$BASE_URL$API_PREFIX/auth/google/auth?tools=gmail,google_sheets" \
     -H "Authorization: Bearer $TOKEN"
   ```
 
@@ -63,6 +71,22 @@ Use `$BASE_URL$API_PREFIX` as the base for all versioned endpoints and include `
     -H "Authorization: Bearer $TOKEN"
   ```
 
+## Tool Routes (`$API_PREFIX/tools`)
+
+- **GET /** list available tools
+  ```bash
+  curl "$BASE_URL$API_PREFIX/tools/" \
+    -H "Authorization: Bearer $TOKEN"
+  ```
+
+### Available Built-in Tools:
+- `gmail` - Read and send emails using Gmail
+- `google_sheets` - Read and write data from Google Sheets
+- `google_calendar` - List and create Google Calendar events
+- `csv` - Read and write CSV files
+- `json` - Read and write JSON files
+- `file_list` - List files in a directory
+
 ## Agent Routes (`$API_PREFIX/agents`)
 
 - **POST /** create agent
@@ -72,14 +96,14 @@ Use `$BASE_URL$API_PREFIX` as the base for all versioned endpoints and include `
     -H "Content-Type: application/json" \
     -d '{
           "name": "Research Assistant",
-          "tools": ["tool-id-1"],
+          "tools": ["gmail", "google_sheets"],
           "config": {
             "llm_model": "gpt-4o-mini",
             "temperature": 0.7,
             "max_tokens": 1000,
             "memory_type": "buffer",
             "reasoning_strategy": "react",
-            "system_prompt": "You are a helpful research aide. Remember the user's name and refer back to earlier answers when possible."
+            "system_prompt": "You are a helpful research aide. Remember the users name and refer back to earlier answers when possible"
           }
         }'
   ```
