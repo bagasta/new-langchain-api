@@ -5,7 +5,7 @@ from uuid import UUID
 
 from app.core.database import get_db
 from app.core.deps import (
-    get_current_user,
+    get_api_key_user,
     get_agent_service,
     get_execution_service,
     get_auth_service,
@@ -32,7 +32,7 @@ router = APIRouter()
 @router.post("/", response_model=AgentCreateResponse)
 async def create_agent(
     agent_data: AgentCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     agent_service: AgentService = Depends(get_agent_service),
     auth_service: AuthService = Depends(get_auth_service)
 ):
@@ -79,7 +79,7 @@ async def create_agent(
 
 @router.get("/", response_model=List[AgentResponse])
 async def get_user_agents(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     agent_service: AgentService = Depends(get_agent_service)
 ):
     """Get all agents for the current user"""
@@ -90,7 +90,7 @@ async def get_user_agents(
 @router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(
     agent_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     agent_service: AgentService = Depends(get_agent_service)
 ):
     """Get a specific agent"""
@@ -102,7 +102,7 @@ async def get_agent(
 async def update_agent(
     agent_id: UUID,
     agent_data: AgentUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     agent_service: AgentService = Depends(get_agent_service)
 ):
     """Update an agent"""
@@ -121,7 +121,7 @@ async def update_agent(
 @router.delete("/{agent_id}")
 async def delete_agent(
     agent_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     agent_service: AgentService = Depends(get_agent_service)
 ):
     """Delete an agent"""
@@ -144,7 +144,7 @@ async def upload_agent_document(
     chunk_size: Optional[int] = Form(None),
     chunk_overlap: Optional[int] = Form(None),
     batch_size: Optional[int] = Form(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     agent_service: AgentService = Depends(get_agent_service),
     embedding_service: EmbeddingService = Depends(get_embedding_service),
 ):
@@ -227,7 +227,7 @@ async def upload_agent_document(
 async def execute_agent(
     agent_id: UUID,
     execute_data: AgentExecuteRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     execution_service: ExecutionService = Depends(get_execution_service)
 ):
     """Execute an agent"""
@@ -281,7 +281,7 @@ async def execute_agent(
 @router.get("/{agent_id}/executions")
 async def get_agent_executions(
     agent_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     execution_service: ExecutionService = Depends(get_execution_service)
 ):
     """Get execution history for an agent"""
@@ -304,7 +304,7 @@ async def get_agent_executions(
 
 @router.get("/executions/stats")
 async def get_execution_stats(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     execution_service: ExecutionService = Depends(get_execution_service)
 ):
     """Get execution statistics"""

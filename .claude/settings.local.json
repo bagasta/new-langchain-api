@@ -3,7 +3,8 @@
     "allow": [
       "Bash(pip install:*)",
       "Bash(pip:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(alembic upgrade:*)"
     ],
     "deny": [],
     "ask": []

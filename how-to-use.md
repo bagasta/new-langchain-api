@@ -10,6 +10,37 @@ export TOKEN="paste-your-jwt-here"
 
 Use `$BASE_URL$API_PREFIX` as the base for all versioned endpoints and include `-H "Authorization: Bearer $TOKEN"` on routes that require authentication.
 
+## Updated Authentication Flow
+
+The API now uses a two-step authentication process:
+
+1. **Register User Account**: Create a user account without generating an API key
+2. **Generate API Key**: Request an API key with specific plan and expiration
+
+### Example Flow
+
+```bash
+# Step 1: Register user
+REGISTER_RESPONSE=$(curl -s -X POST "$BASE_URL$API_PREFIX/auth/register?email=newuser@example.com&password=changeme")
+USER_ID=$(echo $REGISTER_RESPONSE | jq -r '.user_id')
+echo "Registered user: $USER_ID"
+
+# Step 2: Generate API key with PRO_M plan (30 days)
+API_KEY_RESPONSE=$(curl -s -X POST "$BASE_URL$API_PREFIX/auth/api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "newuser@example.com",
+    "password": "changeme",
+    "plan_code": "PRO_M"
+  }')
+TOKEN=$(echo $API_KEY_RESPONSE | jq -r '.access_token')
+EXPIRES_AT=$(echo $API_KEY_RESPONSE | jq -r '.expires_at')
+echo "Generated API key expires at: $EXPIRES_AT"
+
+# Use the token for authenticated requests
+curl -H "Authorization: Bearer $TOKEN" "$BASE_URL$API_PREFIX/auth/me"
+```
+
 ## Public Endpoints
 
 - **GET /**
@@ -34,6 +65,21 @@ Use `$BASE_URL$API_PREFIX` as the base for all versioned endpoints and include `
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/auth/register?email=newuser@example.com&password=changeme"
   ```
+  Returns user information without API key. Use the API key generation endpoint to get access tokens.
+
+- **POST /api-key** (JSON body)
+  ```bash
+  curl -X POST "$BASE_URL$API_PREFIX/auth/api-key" \
+    -H "Content-Type: application/json" \
+    -d '{
+          "username": "user@example.com",
+          "password": "password123",
+          "plan_code": "PRO_M"
+        }'
+  ```
+  Generates API key with plan-based expiration:
+  - `PRO_M`: 30 days expiration
+  - `PRO_Y`: 365 days expiration
 
 - **POST /google/auth**
   ```bash

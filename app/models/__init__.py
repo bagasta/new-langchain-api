@@ -2,7 +2,7 @@ from .base import Base
 from .user import User
 from .agent import Agent, AgentStatus
 from .tool import Tool, ToolType, AgentTool
-from .auth import AuthToken
+from .auth import AuthToken, ApiKey
 from .execution import Execution, ExecutionStatus
 from .embedding import Embedding
 
@@ -15,6 +15,7 @@ __all__ = [
     "ToolType",
     "AgentTool",
     "AuthToken",
+    "ApiKey",
     "Execution",
     "ExecutionStatus",
     "Embedding",

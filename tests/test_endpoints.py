@@ -22,8 +22,18 @@ def _register_user(client) -> Dict[str, str]:
     )
     assert response.status_code == 200, response.text
     data = response.json()
-    creds["token"] = data["access_token"]
+    creds["user_id"] = data["user_id"]
     return creds
+
+
+def _generate_api_key(client, username: str, password: str, plan_code: str = "PRO_M") -> str:
+    response = client.post(
+        f"{API_PREFIX}/auth/api-key",
+        json={"username": username, "password": password, "plan_code": plan_code},
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    return data["access_token"]
 
 
 def _auth_headers(token: str) -> Dict[str, str]:
@@ -50,27 +60,27 @@ def test_register_and_login_flow(client):
     )
     assert duplicate.status_code == 400
 
-    login_resp = client.post(
-        f"{API_PREFIX}/auth/login",
-        params={"email": creds["email"], "password": creds["password"]},
-    )
-    assert login_resp.status_code == 200
-    login_token = login_resp.json()["access_token"]
+    # Test API key generation with PRO_M plan
+    api_key_m = _generate_api_key(client, creds["email"], creds["password"], "PRO_M")
+    headers_m = _auth_headers(api_key_m)
 
-    headers = _auth_headers(login_token)
-
-    me_resp = client.get(f"{API_PREFIX}/auth/me", headers=headers)
+    me_resp = client.get(f"{API_PREFIX}/auth/me", headers=headers_m)
     assert me_resp.status_code == 200
     assert me_resp.json()["email"] == creds["email"].lower()
 
-    tokens_resp = client.get(f"{API_PREFIX}/auth/tokens", headers=headers)
-    assert tokens_resp.status_code == 200
-    assert tokens_resp.json()["tokens"] == []
+    # Test API key generation with PRO_Y plan
+    api_key_y = _generate_api_key(client, creds["email"], creds["password"], "PRO_Y")
+    headers_y = _auth_headers(api_key_y)
+
+    me_resp_y = client.get(f"{API_PREFIX}/auth/me", headers=headers_y)
+    assert me_resp_y.status_code == 200
+    assert me_resp_y.json()["email"] == creds["email"].lower()
 
 
 def test_google_auth_endpoints(client, monkeypatch):
     creds = _register_user(client)
-    headers = _auth_headers(creds["token"])
+    api_key = _generate_api_key(client, creds["email"], creds["password"])
+    headers = _auth_headers(api_key)
 
     fake_state = "state-token"
 

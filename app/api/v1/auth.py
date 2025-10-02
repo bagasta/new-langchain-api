@@ -14,7 +14,7 @@ from app.services.auth_service import (
     normalize_scopes,
 )
 from app.models import User
-from app.schemas.auth import Token, GoogleAuthRequest, GoogleAuthResponse, GoogleAuthCallback
+from app.schemas.auth import Token, GoogleAuthRequest, GoogleAuthResponse, GoogleAuthCallback, ApiKeyRequest, ApiKeyResponse
 from app.core.logging import logger
 
 router = APIRouter()
@@ -88,14 +88,13 @@ async def register(
             )
 
         user = auth_service.create_user(email, password)
-        access_token = auth_service.create_access_token(str(user.id))
 
         logger.info("User registered successfully", user_id=str(user.id))
 
         return {
             "message": "User registered successfully",
-            "access_token": access_token,
-            "token_type": "bearer"
+            "user_id": str(user.id),
+            "email": user.email
         }
 
     except HTTPException as exc:
@@ -248,6 +247,35 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         "is_active": current_user.is_active,
         "created_at": current_user.created_at
     }
+
+
+@router.post("/api-key", response_model=ApiKeyResponse)
+async def generate_api_key(
+    request: ApiKeyRequest,
+    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Generate API key with plan-based expiration"""
+    try:
+        api_key_data = auth_service.generate_api_key(
+            email=request.username,
+            password=request.password,
+            plan_code=request.plan_code
+        )
+
+        logger.info("API key generated successfully", user_id=api_key_data.get("user_id"), plan_code=request.plan_code)
+
+        return ApiKeyResponse(**api_key_data)
+
+    except HTTPException as exc:
+        logger.warning("API key generation failed", error=str(exc.detail), username=request.username)
+        raise exc
+    except Exception as e:
+        logger.error("API key generation failed", error=str(e), username=request.username)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate API key: {str(e)}"
+        )
 
 
 @router.get("/tokens")

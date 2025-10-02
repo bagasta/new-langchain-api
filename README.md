@@ -6,6 +6,8 @@ A scalable API for creating and managing AI agents with dynamic tool integration
 
 - **Dynamic Agent Creation**: Create custom AI agents with configurable tools
 - **Google OAuth Integration**: Secure authentication with scope-based access (agent creation can return an OAuth link when Google Workspace tools are selected)
+- **Two-Step Authentication**: Separate user registration from API key generation
+- **Plan-Based API Keys**: Generate API keys with expiration periods (PRO_M: 30 days, PRO_Y: 365 days)
 - **Built-in Tools**: Gmail, Google Sheets, Google Calendar, CSV/JSON file operations
 - **Retrieval-Augmented Generation (RAG)**: Upload domain documents, embed them with pgvector, and have agents reference the most relevant chunks automatically.
 - **Custom Tools**: Register and execute custom tools with JSON Schema validation
@@ -100,17 +102,35 @@ Tools are functions that agents can use:
 
 ### Authentication
 
-The API supports multiple authentication methods:
+The API uses a two-step authentication process:
+1. **User Registration**: Create account without API key
+2. **API Key Generation**: Request API key with plan-based expiration
+
+**Supported Methods:**
 - JWT-based authentication for API access
 - Google OAuth for external service integration
 - Scope-based access control
+- Plan-based API key expiration (PRO_M: 30 days, PRO_Y: 365 days)
+
+#### API Key Plans
+
+- **PRO_M**: 30-day expiration for monthly subscriptions
+- **PRO_Y**: 365-day expiration for annual subscriptions
+
+#### API Key Management
+
+- Generate multiple API keys per user account
+- Each key has independent expiration dates
+- Keys can be deactivated individually
+- Plan codes determine expiration periods
 
 ## API Endpoints
 
 ### Authentication
 
 - `POST /api/v1/auth/login` - User login
-- `POST /api/v1/auth/register` - User registration
+- `POST /api/v1/auth/register` - User registration (returns user info only)
+- `POST /api/v1/auth/api-key` - Generate API key with plan-based expiration
 - `POST /api/v1/auth/google/auth` - Initiate Google OAuth
 - `GET /api/v1/auth/google/callback` - Google OAuth callback
 
@@ -133,6 +153,38 @@ The API supports multiple authentication methods:
 - `POST /api/v1/tools/execute` - Execute tool directly
 
 ## Example Usage
+
+### Authentication Flow
+
+```python
+import requests
+import json
+
+# Step 1: Register user
+register_response = requests.post(
+    "http://localhost:8000/api/v1/auth/register",
+    params={"email": "user@example.com", "password": "securepassword"}
+)
+user_data = register_response.json()
+print(f"Registered user: {user_data['user_id']}")
+
+# Step 2: Generate API key with PRO_M plan (30 days)
+api_key_response = requests.post(
+    "http://localhost:8000/api/v1/auth/api-key",
+    json={
+        "username": "user@example.com",
+        "password": "securepassword",
+        "plan_code": "PRO_M"
+    }
+)
+api_data = api_key_response.json()
+token = api_data["access_token"]
+expires_at = api_data["expires_at"]
+print(f"API key expires at: {expires_at}")
+
+# Use token for authenticated requests
+headers = {"Authorization": f"Bearer {token}"}
+```
 
 ### Creating an Agent
 

@@ -1,6 +1,12 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, validator
+from typing import Optional, List, Literal
 from datetime import datetime
+from enum import Enum
+
+
+class PlanCode(str, Enum):
+    PRO_M = "PRO_M"
+    PRO_Y = "PRO_Y"
 
 
 class Token(BaseModel):
@@ -44,3 +50,16 @@ class AuthToken(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ApiKeyRequest(BaseModel):
+    username: str
+    password: str
+    plan_code: PlanCode
+
+
+class ApiKeyResponse(BaseModel):
+    access_token: str
+    token_type: str
+    expires_at: datetime
+    plan_code: str

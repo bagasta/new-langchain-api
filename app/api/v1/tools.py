@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, get_tool_service
+from app.core.deps import get_api_key_user, get_tool_service
 from app.services.tool_service import ToolService
 from app.models import User
 from app.schemas.tool import ToolCreate, ToolUpdate, ToolResponse, ToolExecuteRequest
@@ -25,7 +25,7 @@ async def get_tools(
 @router.post("/", response_model=ToolResponse)
 async def create_tool(
     tool_data: ToolCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     tool_service: ToolService = Depends(get_tool_service)
 ):
     """Create a custom tool"""
@@ -63,7 +63,7 @@ async def get_tool(
 async def update_tool(
     tool_id: str,
     tool_data: ToolUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     tool_service: ToolService = Depends(get_tool_service)
 ):
     """Update a tool"""
@@ -83,7 +83,7 @@ async def update_tool(
 @router.delete("/{tool_id}")
 async def delete_tool(
     tool_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     tool_service: ToolService = Depends(get_tool_service)
 ):
     """Delete a tool"""
@@ -103,7 +103,7 @@ async def delete_tool(
 @router.post("/execute")
 async def execute_tool(
     request: ToolExecuteRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_api_key_user),
     tool_service: ToolService = Depends(get_tool_service)
 ):
     """Execute a tool directly"""
