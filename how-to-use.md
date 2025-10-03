@@ -84,18 +84,24 @@ curl -H "Authorization: Bearer $TOKEN" "$BASE_URL$API_PREFIX/auth/me"
 - **POST /google/auth**
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/auth/google/auth" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{
-          "email": "user@example.com"
-        }'
+    -H "Authorization: Bearer $TOKEN"
   ```
+  This endpoint initiates Google OAuth authentication. It no longer requires a request body.
+
+  **Note:** The system automatically handles scope changes from Google. When requesting `drive.file` scope, Google may add broader Drive scopes (`drive`, `drive.photos.readonly`, `drive.appdata`) which are accepted as long as all requested scopes are granted.
+
+- **GET /google/auth**
+  ```bash
+  curl -X GET "$BASE_URL$API_PREFIX/auth/google/auth" \
+    -H "Authorization: Bearer $TOKEN"
+  ```
+  GET method also available for clickable links.
 
 - **GET /google/callback**
   ```bash
-  curl "$BASE_URL$API_PREFIX/auth/google/callback?code=auth-code-from-google&state=state-token" \
-    -H "Authorization: Bearer $TOKEN"
+  curl "$BASE_URL$API_PREFIX/auth/google/callback?code=auth-code-from-google&state=state-token"
   ```
+  Handles the OAuth callback from Google. The authorization token is not required for this endpoint.
 
 - **GET /me**
   ```bash
@@ -287,3 +293,125 @@ The API converts the file to plain text, removes noisy characters, chunks the co
   ```
 
 Replace placeholders (`AGENT_ID`, `TOOL_ID`, `TOKEN`, etc.) with real values from your environment. All sample payloads are minimal; include any additional fields your workflow requires.
+
+## Troubleshooting
+
+### Google OAuth Issues
+
+#### "Scope has changed" Error
+If you encounter this error during Google authentication:
+```json
+{"detail":"Google authentication failed: Scope has changed from ..."}
+```
+
+**This is normal behavior.** Google automatically adds broader scopes when certain scopes (like `drive.file`) are requested. The system now handles these changes gracefully.
+
+**Solution:** The authentication should work automatically now. If it still fails:
+1. Try re-authenticating by calling `/api/v1/auth/google/auth` again
+2. Follow the OAuth flow completely
+3. The system will automatically handle scope differences
+
+#### Missing Google Scopes
+If you're missing required Google scopes, ensure you've enabled these APIs in Google Cloud Console:
+- Gmail API
+- Google Calendar API
+- Google Sheets API
+- Google Drive API
+- Google Docs API
+
+#### Google OAuth Setup
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project
+3. Enable the required APIs listed above
+4. Create OAuth 2.0 credentials (Web Application)
+5. Add redirect URI: `http://localhost:8000/api/v1/auth/google/callback`
+6. Copy Client ID and Client Secret to your `.env` file
+
+### Agent Creation Issues
+
+#### Agent Creation Fails with Google Tools
+When creating an agent with Google Workspace tools:
+```bash
+curl -X POST "$BASE_URL$API_PREFIX/agents/" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Email Assistant",
+    "tools": ["gmail", "google_sheets"],
+    "config": {...}
+  }'
+```
+
+If the response includes `"auth_required": true`, you need to complete Google OAuth:
+1. Visit the `auth_url` provided in the response
+2. Complete the OAuth flow
+3. The agent will then be able to use Google tools
+
+### API Key Issues
+
+#### API Key Expiration
+API keys have plan-based expiration:
+- `PRO_M`: 30 days
+- `PRO_Y`: 365 days
+
+To check when your key expires:
+```bash
+curl "$BASE_URL$API_PREFIX/auth/me" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+To generate a new key:
+```bash
+curl -X POST "$BASE_URL$API_PREFIX/auth/api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "your-email@example.com",
+    "password": "your-password",
+    "plan_code": "PRO_M"
+  }'
+```
+
+### Document Ingestion Issues
+
+#### Unsupported File Types
+Only these file types are supported for document ingestion:
+- `application/pdf` (.pdf)
+- `application/vnd.openxmlformats-officedocument.wordprocessingml.document` (.docx)
+- `application/vnd.openxmlformats-officedocument.presentationml.presentation` (.pptx)
+- `text/plain` (.txt)
+
+#### Large Files
+For large files, consider adjusting these parameters:
+- `chunk_size`: Smaller chunks for better relevance (default: 400)
+- `chunk_overlap`: Overlap between chunks (default: 80)
+- `batch_size`: Number of chunks to process at once (default: 50)
+
+### Performance Issues
+
+#### Slow Agent Execution
+- Use appropriate `max_tokens` limits
+- Adjust `temperature` for faster responses (lower = faster)
+- Use session IDs to maintain context and reduce repetition
+- Limit the number of tools per agent
+
+#### Database Performance
+- Ensure PostgreSQL is properly tuned
+- Use connection pooling
+- Consider read replicas for high-traffic deployments
+
+### Common Error Messages
+
+#### "Required scopes not granted"
+This means Google didn't grant all the scopes your agent needs. Check:
+1. All required APIs are enabled in Google Cloud Console
+2. User has granted necessary permissions during OAuth
+3. OAuth consent screen is properly configured
+
+#### "Agent execution failed"
+Common causes:
+- Missing API keys (OpenAI, Google)
+- Insufficient permissions for Google services
+- Invalid agent configuration
+- Tool execution errors
+
+Check the execution logs for detailed error information.

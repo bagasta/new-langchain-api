@@ -78,6 +78,7 @@ async def create_agent(
 
 
 @router.get("/", response_model=List[AgentResponse])
+@router.get("", response_model=List[AgentResponse], include_in_schema=False)
 async def get_user_agents(
     current_user: User = Depends(get_api_key_user),
     agent_service: AgentService = Depends(get_agent_service)

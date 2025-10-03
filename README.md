@@ -255,10 +255,12 @@ print(f"Session id: {execution.get('session_id')}")
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project
-3. Enable Gmail, Google Calendar, and Google Sheets APIs
-4. Create OAuth 2.0 credentials
+3. Enable Gmail, Google Calendar, Google Sheets, Google Drive, and Docs APIs
+4. Create OAuth 2.0 credentials (Web Application)
 5. Add redirect URI: `http://localhost:8000/api/v1/auth/google/callback`
 6. Copy Client ID and Client Secret to `.env`
+
+**Note:** The system automatically handles scope changes from Google OAuth. When requesting `drive.file` scope, Google may add broader Drive scopes (`drive`, `drive.photos.readonly`, `drive.appdata`) which are accepted as long as all requested scopes are granted.
 
 ## Development
 
@@ -404,6 +406,11 @@ For support and questions:
 
 ## Changelog
 
+### v1.1.0
+- **Fixed Google OAuth scope validation issues** - Now handles automatic scope expansion from Google
+- **Enhanced token refresh mechanism** - Gracefully handles scope changes during token refresh
+- **Improved error handling** - Better error messages for authentication failures
+
 ### v1.0.0
 - Initial release
 - Basic agent management
@@ -412,3 +419,24 @@ For support and questions:
 - Custom tool registration
 - LangChain integration
 - Docker deployment setup
+
+## Troubleshooting
+
+### Google OAuth Issues
+
+**Q: I'm getting "Scope has changed" errors during Google authentication**
+A: This is normal behavior. Google automatically adds broader scopes when certain scopes (like `drive.file`) are requested. The system now handles these changes gracefully.
+
+**Q: My Google OAuth was working but now fails**
+A: Google may have updated their scope requirements. Try re-authenticating by:
+1. Calling `/api/v1/auth/google/auth` again
+2. Following the OAuth flow
+3. The system will automatically handle scope differences
+
+**Q: I'm missing required Google scopes**
+A: Ensure you've enabled the required APIs in Google Cloud Console:
+- Gmail API
+- Google Calendar API
+- Google Sheets API
+- Google Drive API
+- Google Docs API
