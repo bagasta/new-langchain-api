@@ -21,6 +21,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import Tool as LangChainTool
+from app.integrations.mcp import load_mcp_tools
 
 
 class ExecutionService:
@@ -172,6 +173,20 @@ class ExecutionService:
             if tool_instance:
                 langchain_tools.append(tool_instance)
 
+        mcp_tools = await load_mcp_tools(
+            servers_cfg=getattr(agent, "mcp_servers", None) or {},
+            allowed_tools=getattr(agent, "allowed_tools", None) or [],
+        )
+        if mcp_tools:
+            langchain_tools.extend(mcp_tools)
+            tool_names.extend(
+                [
+                    tool_name
+                    for tool_name in (getattr(tool, "name", None) for tool in mcp_tools)
+                    if tool_name
+                ]
+            )
+
         # Create prompt template
         base_system_prompt = (
             llm_config.get("system_prompt")
@@ -180,10 +195,12 @@ class ExecutionService:
         )
 
         tool_description = ""
-        if tool_names:
+        unique_tool_names = sorted({name for name in tool_names if name})
+
+        if unique_tool_names:
             tool_description = (
                 "You have access to the following tools to help users: "
-                f"{', '.join(tool_names)}."
+                f"{', '.join(unique_tool_names)}."
             )
 
         combined_system_prompt = base_system_prompt.strip()
@@ -202,7 +219,7 @@ class ExecutionService:
                 "Each tool expects a single JSON object passed as its argument. Provide well-formed JSON containing "
                 "all required fields whenever you invoke a tool."
             )
-        tool_names_lower = {tool_record.name.lower() for tool_record in tool_records}
+        tool_names_lower = {name.lower() for name in unique_tool_names}
         if "gmail" in tool_names_lower:
             guidance_blocks.append(
                 "For any email task you must call the Gmail tool. Supported actions include 'send', 'read', 'search', 'create_draft', 'get_message', and 'get_thread'. "

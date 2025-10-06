@@ -41,10 +41,17 @@ class AgentService:
 
             # Create agent
             config_dict = agent_data.config.model_dump() if agent_data.config else {}
+            mcp_servers = {
+                alias: cfg.model_dump(mode="json", exclude_none=True)
+                for alias, cfg in (agent_data.mcp_servers or {}).items()
+            }
+
             agent = Agent(
                 user_id=user_id,
                 name=agent_data.name,
-                config=config_dict
+                config=config_dict,
+                mcp_servers=mcp_servers,
+                allowed_tools=list(agent_data.allowed_tools or []),
             )
 
             self.db.add(agent)
@@ -98,6 +105,15 @@ class AgentService:
 
             if agent_data.status is not None:
                 agent.status = agent_data.status
+
+            if agent_data.mcp_servers is not None:
+                agent.mcp_servers = {
+                    alias: cfg.model_dump(mode="json", exclude_none=True)
+                    for alias, cfg in agent_data.mcp_servers.items()
+                }
+
+            if agent_data.allowed_tools is not None:
+                agent.allowed_tools = list(agent_data.allowed_tools)
 
             if agent_data.tools is not None:
                 # Remove existing tools

@@ -1,5 +1,5 @@
-from sqlalchemy import Column, String, Enum, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Column, String, Enum, ForeignKey, text
+from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.orm import relationship
 import uuid
 import enum
@@ -20,6 +20,18 @@ class Agent(Base):
     name = Column(String(255), nullable=False)
     config = Column(JSONB, nullable=False)
     status = Column(Enum(AgentStatus), default=AgentStatus.ACTIVE)
+    mcp_servers = Column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+    )
+    allowed_tools = Column(
+        ARRAY(String),
+        nullable=False,
+        server_default=text("'{}'::text[]"),
+        default=list,
+    )
 
     # Relationships
     user = relationship("User", back_populates="agents")

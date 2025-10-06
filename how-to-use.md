@@ -124,7 +124,7 @@ curl -H "Authorization: Bearer $TOKEN" "$BASE_URL$API_PREFIX/auth/me"
     -H "Content-Type: application/json" \
     -d '{
           "name": "Research Assistant",
-          "tools": ["tool-id-1"],
+          "tools": ["gmail"],
           "config": {
             "llm_model": "gpt-4o-mini",
             "temperature": 0.7,
@@ -135,6 +135,32 @@ curl -H "Authorization: Bearer $TOKEN" "$BASE_URL$API_PREFIX/auth/me"
           }
         }'
   ```
+  Include Google tools only if you have already linked the relevant account, otherwise the response will return `auth_required: true` and an OAuth URL.
+
+  To attach tools from Model Context Protocol (MCP) servers (for example an n8n MCP backend), extend the payload with `mcp_servers` plus an `allowed_tools` whitelist:
+
+  ```bash
+  curl -X POST "$BASE_URL$API_PREFIX/agents/" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+          "name": "Market Analyst",
+          "tools": ["gmail"],
+          "config": {
+            "llm_model": "gpt-4o-mini",
+            "temperature": 0.5
+          },
+          "mcp_servers": {
+            "market": {
+              "transport": "streamable_http",
+              "url": "https://n8n.example.com/mcp/market/sse",
+              "headers": {"Authorization": "Bearer TENANT_ABC"}
+            }
+          },
+          "allowed_tools": ["market.google_trends", "market.shopee_scrape"]
+        }'
+  ```
+  Only tools whose fully qualified names appear in `allowed_tools` are exposed to the agent. If you omit both `mcp_servers` and `allowed_tools`, the agent behaves exactly as it did prior to MCP support (built-in and custom database tools only).
 
 - **GET /** list agents
   ```bash
@@ -346,6 +372,12 @@ If the response includes `"auth_required": true`, you need to complete Google OA
 1. Visit the `auth_url` provided in the response
 2. Complete the OAuth flow
 3. The agent will then be able to use Google tools
+
+#### MCP Tools Not Showing Up
+If MCP-hosted tools are missing at runtime:
+- Ensure `langchain-mcp-adapters` is installed in the API environment (`pip install langchain-mcp-adapters>=0.0.5`).
+- Double-check that the agent payload includes both a valid `mcp_servers` entry and each desired tool in `allowed_tools`.
+- Confirm the MCP server is reachable and returning tool metadata; unreachable servers are skipped with a warning in the API logs.
 
 ### API Key Issues
 

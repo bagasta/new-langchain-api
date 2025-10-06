@@ -9,6 +9,7 @@ A scalable API for creating and managing AI agents with dynamic tool integration
 - **Two-Step Authentication**: Separate user registration from API key generation
 - **Plan-Based API Keys**: Generate API keys with expiration periods (PRO_M: 30 days, PRO_Y: 365 days)
 - **Built-in Tools**: Gmail, Google Sheets, Google Calendar, CSV/JSON file operations
+- **MCP Tool Federation**: Connect external MCP servers (e.g., n8n) and merge their tools into any agent with whitelist filters
 - **Retrieval-Augmented Generation (RAG)**: Upload domain documents, embed them with pgvector, and have agents reference the most relevant chunks automatically.
 - **Custom Tools**: Register and execute custom tools with JSON Schema validation
 - **Scalable Architecture**: Microservices-ready with PostgreSQL and Redis
@@ -212,6 +213,32 @@ print(f"Created agent: {agent['id']}")
 if agent["auth_required"]:
     print(f"Complete Google OAuth: {agent['auth_url']} (state={agent['auth_state']})")
 ```
+
+To attach MCP tools, include `mcp_servers` and an `allowed_tools` whitelist when creating or updating an agent:
+
+```json
+{
+  "name": "Market Research Agent",
+  "tools": ["gmail"],
+  "config": {
+    "llm_model": "gpt-4o-mini",
+    "temperature": 0.5
+  },
+  "mcp_servers": {
+    "market": {
+      "transport": "streamable_http",
+      "url": "https://n8n.example.com/mcp/market/sse",
+      "headers": {"Authorization": "Bearer TENANT_ABC"}
+    }
+  },
+  "allowed_tools": [
+    "market.google_trends",
+    "market.shopee_scrape"
+  ]
+}
+```
+
+`allowed_tools` enforces least-privilege access: MCP tools are only exposed to the LangChain agent if their fully qualified name is present in the list. When `mcp_servers` is omitted, behavior falls back to the legacy built-in tool handling.
 
 ### Executing an Agent
 

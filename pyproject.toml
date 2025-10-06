@@ -16,6 +16,9 @@ extend-exclude = '''
 )/
 '''
 
+# Runtime dependencies are managed via requirements.txt.
+# MCP integration adds langchain-mcp-adapters>=0.0.5 to that list.
+
 [tool.isort]
 profile = "black"
 multi_line_output = 3

@@ -46,9 +46,19 @@ curl -X POST "http://localhost:8000/api/v1/agents" \
       "max_tokens": 1000,
       "memory_type": "buffer",
       "reasoning_strategy": "react"
-    }
+    },
+    "mcp_servers": {
+      "market": {
+        "transport": "streamable_http",
+        "url": "https://n8n.example.com/mcp/market/sse",
+        "headers": {"Authorization": "Bearer TENANT_ABC"}
+      }
+    },
+    "allowed_tools": ["market.google_trends", "market.shopee_scrape"]
   }'
 ```
+
+> Both `mcp_servers` and `allowed_tools` are optional; omit them to keep the legacy built-in tool behavior.
 
 ### List Agents
 
