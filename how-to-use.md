@@ -162,6 +162,8 @@ curl -H "Authorization: Bearer $TOKEN" "$BASE_URL$API_PREFIX/auth/me"
   ```
   Only tools whose fully qualified names appear in `allowed_tools` are exposed to the agent. If you omit both `mcp_servers` and `allowed_tools`, the agent behaves exactly as it did prior to MCP support (built-in and custom database tools only).
 
+  > **n8n tip:** If your MCP server comes from an n8n workflow trigger, ensure the `url` you provide reaches its Server-Sent Events (SSE) endpoint (typically the workflow URL ending in `/sse`). The API now retries with `/sse` automatically when it detects n8n-style 404s, but configuring the exact SSE endpoint avoids an extra round-trip.
+
 - **GET /** list agents
   ```bash
   curl "$BASE_URL$API_PREFIX/agents/" \

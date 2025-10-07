@@ -15,7 +15,7 @@ class AgentConfig(BaseModel):
 
 
 class MCPServerConfig(BaseModel):
-    transport: Literal["streamable_http", "stdio"]
+    transport: Literal["streamable_http", "sse", "stdio", "websocket"]
     url: Optional[AnyHttpUrl] = None
     headers: Dict[str, str] = Field(default_factory=dict)
     command: Optional[str] = None
@@ -27,8 +27,8 @@ class MCPServerConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_transport_requirements(self) -> "MCPServerConfig":
-        if self.transport == "streamable_http" and not self.url:
-            raise ValueError("streamable_http transport requires a url")
+        if self.transport in {"streamable_http", "sse", "websocket"} and not self.url:
+            raise ValueError(f"{self.transport} transport requires a url")
         if self.transport == "stdio" and not self.command:
             raise ValueError("stdio transport requires a command")
         return self

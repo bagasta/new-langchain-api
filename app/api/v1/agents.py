@@ -271,6 +271,8 @@ async def execute_agent(
             response=response_text,
             session_id=execution.session_id
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to execute agent", error=str(e), agent_id=str(agent_id))
         raise HTTPException(

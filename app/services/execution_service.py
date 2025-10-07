@@ -21,7 +21,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import Tool as LangChainTool
-from app.integrations.mcp import load_mcp_tools
+from app.integrations.mcp import load_mcp_tools, MCPConnectionError
 
 
 class ExecutionService:
@@ -102,8 +102,12 @@ class ExecutionService:
                 self.db.refresh(execution)
 
                 logger.error("Agent execution failed", error=str(e), execution_id=str(execution.id))
+                if isinstance(e, HTTPException):
+                    raise e
                 return execution
 
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error("Failed to execute agent", error=str(e), agent_id=str(agent_id))
             raise HTTPException(
@@ -173,10 +177,21 @@ class ExecutionService:
             if tool_instance:
                 langchain_tools.append(tool_instance)
 
-        mcp_tools = await load_mcp_tools(
-            servers_cfg=getattr(agent, "mcp_servers", None) or {},
-            allowed_tools=getattr(agent, "allowed_tools", None) or [],
-        )
+        try:
+            mcp_tools = await load_mcp_tools(
+                servers_cfg=getattr(agent, "mcp_servers", None) or {},
+                allowed_tools=getattr(agent, "allowed_tools", None) or [],
+            )
+        except MCPConnectionError as exc:
+            logger.error(
+                "Failed to attach MCP tools",
+                agent_id=str(agent.id),
+                error=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=str(exc),
+            )
         if mcp_tools:
             langchain_tools.extend(mcp_tools)
             tool_names.extend(
