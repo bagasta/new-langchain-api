@@ -1,6 +1,7 @@
+import json
 from typing import Optional, List
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -37,6 +38,31 @@ class Settings(BaseSettings):
     # Performance
     MAX_CONCURRENT_AGENTS: int = 10000
     AGENT_EXECUTION_TIMEOUT: int = 300  # 5 minutes
+
+    MCP_SSE_URL: Optional[str] = Field(default=None, env="MCP_SSE_URL")
+    MCP_SSE_TOKEN: Optional[str] = Field(default=None, env="MCP_SSE_TOKEN")
+    MCP_SSE_ALLOWED_TOOLS: List[str] = Field(default_factory=list, env="MCP_SSE_ALLOWED_TOOLS")
+
+    MCP_HTTP_URL: Optional[str] = Field(default=None, env="MCP_HTTP_URL")
+    MCP_HTTP_TOKEN: Optional[str] = Field(default=None, env="MCP_HTTP_TOKEN")
+    MCP_HTTP_ALLOWED_TOOLS: List[str] = Field(default_factory=list, env="MCP_HTTP_ALLOWED_TOOLS")
+
+    @field_validator("MCP_SSE_ALLOWED_TOOLS", "MCP_HTTP_ALLOWED_TOOLS", mode="before")
+    @classmethod
+    def _split_allowed_tools(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                try:
+                    parsed = json.loads(stripped)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed if str(item).strip()]
+                except json.JSONDecodeError:
+                    pass
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
 
     class Config:
         env_file = ".env"

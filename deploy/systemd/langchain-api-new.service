@@ -1,0 +1,17 @@
+[Unit]
+Description=LangChain API (uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/new-langchain-api
+Environment="PATH=/root/new-langchain-api/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+EnvironmentFile=-/etc/langchain-api-new.env
+ExecStart=/root/new-langchain-api/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8123 --proxy-headers --forwarded-allow-ips='*'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

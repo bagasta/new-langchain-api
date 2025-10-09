@@ -2,7 +2,7 @@ import asyncio
 import json
 import re
 import time
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Mapping
 from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy import inspect, text
@@ -17,11 +17,16 @@ from app.services.auth_service import AuthService
 from app.services.embedding_service import EmbeddingService
 from app.core.logging import logger
 from app.core.config import settings
+from app.integrations.mcp_sse import (
+    load_mcp_tools_from_connections,
+    build_http_connection_config,
+    build_sse_connection_config,
+    MCPClientError,
+)
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, ToolMessage
-from langchain_core.tools import Tool as LangChainTool
-from app.integrations.mcp import load_mcp_tools, MCPConnectionError
+from langchain_core.tools import Tool as LangChainTool, BaseTool
 
 
 class ExecutionService:
@@ -157,6 +162,13 @@ class ExecutionService:
             api_key=api_key
         )
 
+        logger.info(
+            "Preparing execution context",
+            agent_id=str(agent.id),
+            session_id=session_id,
+            input_preview=input_text[:120],
+        )
+
         # Get agent tools
         agent_tools = self.db.query(AgentTool).filter(AgentTool.agent_id == agent.id).all()
         tool_records: List[Tool] = []
@@ -167,8 +179,20 @@ class ExecutionService:
 
         tool_names = [tool.name for tool in tool_records]
 
+        logger.debug(
+            "Resolved built-in tools",
+            agent_id=str(agent.id),
+            builtin_tool_count=len(tool_records),
+            builtin_tool_names=tool_names,
+        )
+
         # Build conversation history context
         conversation_history = self._build_conversation_history(agent.id, session_id)
+        logger.debug(
+            "Loaded conversation history",
+            agent_id=str(agent.id),
+            history_turns=len(conversation_history or []),
+        )
 
         # Create LangChain tools
         langchain_tools = []
@@ -177,21 +201,52 @@ class ExecutionService:
             if tool_instance:
                 langchain_tools.append(tool_instance)
 
-        try:
-            mcp_tools = await load_mcp_tools(
-                servers_cfg=getattr(agent, "mcp_servers", None) or {},
-                allowed_tools=getattr(agent, "allowed_tools", None) or [],
-            )
-        except MCPConnectionError as exc:
-            logger.error(
-                "Failed to attach MCP tools",
-                agent_id=str(agent.id),
-                error=str(exc),
-            )
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=str(exc),
-            )
+        # Load MCP tools over SSE transport if configured
+        mcp_tools: List[BaseTool] = []
+        connections: Dict[str, Mapping[str, object]] = {}
+
+        agent_connections = getattr(agent, "mcp_servers", None) or {}
+        if agent_connections:
+            connections = agent_connections
+        else:
+            if settings.MCP_HTTP_URL:
+                connections["env_http"] = build_http_connection_config(
+                    settings.MCP_HTTP_URL,
+                    settings.MCP_HTTP_TOKEN,
+                )
+            if settings.MCP_SSE_URL:
+                connections["env_sse"] = build_sse_connection_config(
+                    settings.MCP_SSE_URL,
+                    settings.MCP_SSE_TOKEN,
+                )
+
+        whitelist: List[str] = list(getattr(agent, "allowed_tools", []) or [])
+        if not whitelist:
+            if settings.MCP_HTTP_ALLOWED_TOOLS:
+                whitelist.extend(settings.MCP_HTTP_ALLOWED_TOOLS)
+            if settings.MCP_SSE_ALLOWED_TOOLS:
+                whitelist.extend(settings.MCP_SSE_ALLOWED_TOOLS)
+
+        if connections:
+            try:
+                mcp_tools = await load_mcp_tools_from_connections(
+                    connections=connections,
+                    allowed_tools=whitelist or None,
+                )
+                if mcp_tools:
+                    logger.info(
+                        "Loaded MCP tools",
+                        agent_id=str(agent.id),
+                        tool_count=len(mcp_tools),
+                        tool_names=[getattr(tool, "name", "") for tool in mcp_tools],
+                    )
+            except MCPClientError as mcp_error:
+                logger.warning(
+                    "Failed to load MCP tools; continuing without them",
+                    agent_id=str(agent.id),
+                    error=str(mcp_error),
+                )
+
         if mcp_tools:
             langchain_tools.extend(mcp_tools)
             tool_names.extend(
@@ -201,6 +256,7 @@ class ExecutionService:
                     if tool_name
                 ]
             )
+
 
         # Create prompt template
         base_system_prompt = (
@@ -259,6 +315,13 @@ class ExecutionService:
         if rag_context:
             combined_system_prompt = f"{combined_system_prompt}\n\nContext:\n{rag_context}".strip()
 
+        logger.info(
+            "Launching LangChain agent graph",
+            agent_id=str(agent.id),
+            total_tools=len(langchain_tools),
+            tool_names=[getattr(tool, "name", "") for tool in langchain_tools],
+        )
+
         graph = create_react_agent(
             model=llm,
             tools=langchain_tools,
@@ -269,8 +332,14 @@ class ExecutionService:
         messages_input.append(HumanMessage(content=input_text))
 
         start_time = time.time()
+        logger.debug("Invoking agent graph", agent_id=str(agent.id), session_id=session_id)
         result_state = await graph.ainvoke({"messages": messages_input})
         execution_time = time.time() - start_time
+        logger.info(
+            "Agent graph completed",
+            agent_id=str(agent.id),
+            execution_time_ms=int(execution_time * 1000),
+        )
 
         result_messages = []
         if isinstance(result_state, dict):

@@ -46,20 +46,35 @@ curl -X POST "http://localhost:8000/api/v1/agents" \
       "max_tokens": 1000,
       "memory_type": "buffer",
       "reasoning_strategy": "react"
-    },
-    "mcp_servers": {
-      "market": {
-        "transport": "streamable_http",
-        "url": "https://n8n.example.com/mcp/market/sse",
-        "headers": {"Authorization": "Bearer TENANT_ABC"}
-      }
-    },
-    "allowed_tools": ["market.google_trends", "market.shopee_scrape"]
+    }
   }'
 ```
 
-> Both `mcp_servers` and `allowed_tools` are optional; omit them to keep the legacy built-in tool behavior.
+Example with an MCP server over streamable HTTP:
 
+```bash
+curl -X POST "http://localhost:8000/api/v1/agents" \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+        "name": "Streamable HTTP MCP Agent",
+        "tools": [],
+        "config": {
+          "llm_model": "gpt-4o-mini",
+          "temperature": 0.5,
+          "max_tokens": 1000,
+          "system_prompt": "You can call remote MCP tools (calculator, web_fetch, etc.) whenever it helps."
+        },
+        "mcp_servers": {
+          "langchain_mcp": {
+            "transport": "streamable_http",
+            "url": "http://localhost:8080/mcp/stream",
+            "headers": {"Authorization": "Bearer jango"}
+          }
+        },
+        "allowed_tools": ["calculator", "web_fetch", "web_search", "pdf_generate"]
+      }'
+```
 ### List Agents
 
 ```bash
@@ -108,6 +123,8 @@ curl -X POST "http://localhost:8000/api/v1/agents/{agent_id}/execute" \
     }
   }'
 ```
+
+> To expose tools from the FastMCP server described in `mcp-server.md`, configure the API process with `MCP_HTTP_URL`, `MCP_HTTP_TOKEN`, and (optionally) `MCP_HTTP_ALLOWED_TOOLS` (plus `MCP_SSE_*` for fallback). The execution service will fetch the remote tool list and merge it with built-in tools for every agent run.
 
 ### Get Execution History
 

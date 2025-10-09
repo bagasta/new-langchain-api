@@ -1,311 +1,182 @@
-# Product Requirements Document: LangChain Agent API
+# CLAUDE.md
 
-## 1. Visi Produk
-Membangun API berbasis LangChain yang memungkinkan pengguna membuat agen AI kustom dengan kemampuan memilih tools spesifik sesuai kebutuhan, dengan otentikasi dinamis dan performa tinggi untuk menangani banyak pengguna secara bersamaan.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 2. Target User
-- Developer yang membutuhkan otomatisasi cerdas
-- Perusahaan yang ingin mengintegrasikan AI ke workflow
-- Tim teknis yang membutuhkan solusi otomatisasi tanpa coding mendalam
-- Pengguna non-teknis yang ingin membuat agen dengan antarmuka sederhana
+## Common Development Commands
 
-## 3. Fitur-Fitur Teknis
+### Environment Setup
+```bash
+# Install dependencies
+pip install -r requirements.txt
 
-### 3.1. Agent Creation & Management
-- **Dynamic Agent Configuration**: 
-  - Endpoint `POST /agents` untuk membuat agen dengan payload JSON
-  - Pemilihan tools dari katalog tersedia
-  - Konfigurasi parameter agen (model LLM, memory type, reasoning strategy)
-  
-- **Agent Lifecycle Management**:
-  - `GET /agents/{id}` - Detail agen
-  - `PUT /agents/{id}` - Update konfigurasi
-  - `DELETE /agents/{id}` - Hapus agen
-  - `POST /agents/{id}/execute` - Jalankan agen dengan input spesifik
+# Start development environment with Docker
+docker-compose up -d
 
-### 3.2. Tools Ecosystem
-- **Built-in Tools**:
-  - Google Workspace (Gmail, Docs, Sheets, Calendar)
-  - Database tools (PostgreSQL)
-  - File operations (CSV, PDF, Excel, PPTX, DOCX, TXT)
-  - Web scraping & API integration
+# Start services manually (if not using Docker)
+# 1. Start PostgreSQL and Redis
+# 2. Create database
+createdb langchain_api
 
-- **Custom Tools Registration**:
-  - `POST /tools` - Mendaftarkan tools kustom
-  - Validasi input/output dengan JSON Schema
-  - Isolasi eksekusi dengan Docker sandbox
+# 3. Run database migrations
+alembic upgrade head
 
-### 3.3. Dynamic Authentication System
-- **Google OAuth Integration**:
-  - Generate OAuth link saat pembuatan agen dengan tools Google
-  - Scope otomatis disesuaikan dengan tools dan aksi yang dipilih:
-    ```json
-    {
-      "tools": ["gmail:read", "gmail:draft", "sheets:read"],
-      "auth_scopes": [
-        "https://www.googleapis.com/auth/gmail.readonly",
-        "https://www.googleapis.com/auth/gmail.compose",
-        "https://www.googleapis.com/auth/spreadsheets.readonly"
-      ]
-    }
-    ```
-  - Token management dengan refresh otomatis
-  - Enkripsi token di database
+# 4. Enable pgvector extension (if not using Docker)
+DATABASE_URL="postgresql://postgres:password@localhost:5432/langchain_api" \
+  scripts/install_pgvector.sh
 
-- **Authentication Flow**:
-  1. User buat agen dengan tools Google
-  2. API return response dengan auth link:
-     ```json
-     {
-       "agent_id": "uuid",
-       "auth_required": true,
-       "auth_url": "https://accounts.google.com/oauth?scope=...&state=..."
-     }
-     ```
-  3. User klik link dan authorize
-  4. Google redirect ke callback endpoint
-  5. Simpan token dengan scope terbatas sesuai tools yang dipilih
-
-## 4. Arsitektur Sistem
-
-### 4.1. High-Level Architecture
-```mermaid
-graph TB
-  subgraph "Client Layer"
-    A[Web Dashboard] --> B[Mobile App]
-    A --> C[CLI Tools]
-  end
-  
-  subgraph "API Gateway"
-    D[Kong/Nginx] --> E[Rate Limiting]
-    D --> F[Load Balancer]
-  end
-  
-  subgraph "Application Layer"
-    G[Agent Service] --> H[Auth Service]
-    G --> I[Tool Service]
-    G --> J[Execution Service]
-  end
-  
-  subgraph "Data Layer"
-    K[(PostgreSQL)] --> L[pgvector]
-    M[Redis Cache]
-    N[Object Storage]
-  end
-  
-  subgraph "External Services"
-    O[Google APIs]
-    P[Other APIs]
-  end
-  
-  A --> D
-  B --> D
-  C --> D
-  D --> G
-  H --> K
-  I --> K
-  J --> M
-  J --> N
-  I --> O
-  I --> P
+# 5. Start the application
+uvicorn app.main:app --reload
 ```
- 
- 
-## 4.2. Component Details
-Agent Service: Mengelola pembuatan, konfigurasi, dan manajemen agen
-Auth Service: Mengelola otentikasi, otorisasi, dan token management
-Tool Service: Mengelola registrasi, validasi, dan eksekusi tools
-Execution Service: Menjalankan agen dengan asynchronous processing
-PostgreSQL: Penyimpanan data agen, user, konfigurasi, dan token
-pgvector: Penyimpanan vektor untuk embedding dan similarity search
-Redis: Caching hasil eksekusi dan session management
-Object Storage: Penyimpanan file hasil eksekusi dan temporary data
 
-## 5. Requirements Teknis
-### 5.1. Functional Requirements
-Endpoint
-Method
-Description
-Request Body
-Response
-/agents	POST	Create new agent	{name, tools, config}	{agent_id, auth_url}
-/agents/{id}	GET	Get agent details	-	Agent configuration
-/agents/{id}/execute	POST	Execute agent	{input, parameters}	Execution result
-/tools	GET	List available tools	-	Tools catalog
-/tools	POST	Register custom tool	Tool definition	Tool ID
-/auth/google/callback	GET	OAuth callback	{code, state}	Success/error
-### 5.2. Non-Functional Requirements
-Category
-Requirement
-Specification
-Performance	Latency	<500ms for API calls, <2s for simple agent execution
-Throughput	10,000+ concurrent requests	
-Scalability	Horizontal scaling	Auto-scaling based on load
-Availability	Uptime	99.95%
-Security	Data encryption	TLS 1.3, AES-256 for data at rest
-Compliance	GDPR ready	Data retention policies, audit logs
+### Database Operations
+```bash
+# Create new migration
+alembic revision --autogenerate -m "Description of changes"
 
-## 6. Database Design
-###6.1. PostgreSQL Schema
--- Users table
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+# Apply migrations
+alembic upgrade head
 
--- Agents table
-CREATE TABLE agents (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id),
-    name VARCHAR(255) NOT NULL,
-    config JSONB NOT NULL,
-    status VARCHAR(50) DEFAULT 'active',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+# Rollback one migration
+alembic downgrade -1
 
--- Tools catalog
-CREATE TABLE tools (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(255) UNIQUE NOT NULL,
-    description TEXT,
-    schema JSONB NOT NULL,
-    type VARCHAR(50) NOT NULL, -- 'builtin' or 'custom'
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+# View migration history
+alembic history
 
--- Agent tools mapping
-CREATE TABLE agent_tools (
-    agent_id UUID REFERENCES agents(id),
-    tool_id UUID REFERENCES tools(id),
-    config JSONB,
-    PRIMARY KEY (agent_id, tool_id)
-);
+# View current revision
+alembic current
+```
 
--- Authentication tokens
-CREATE TABLE auth_tokens (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id),
-    service VARCHAR(50) NOT NULL, -- 'google', 'microsoft', etc.
-    access_token TEXT NOT NULL,
-    refresh_token TEXT,
-    scope TEXT[] NOT NULL,
-    expires_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+### Testing
+```bash
+# Run all tests with coverage
+pytest
 
--- Execution history
-CREATE TABLE executions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    agent_id UUID REFERENCES agents(id),
-    input JSONB,
-    output JSONB,
-    status VARCHAR(50) NOT NULL,
-    duration_ms INTEGER,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+# Run specific test file
+pytest tests/test_auth.py
 
-### 6.2. Vector Database (pgvector)
--- Enable pgvector extension
-CREATE EXTENSION IF NOT EXISTS vector;
+# Run with verbose output
+pytest -v
 
--- Create table for embeddings
-CREATE TABLE embeddings (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    agent_id UUID REFERENCES agents(id),
-    content TEXT NOT NULL,
-    embedding VECTOR(1536) NOT NULL, -- OpenAI embedding size
-    metadata JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+# Run tests with coverage report (HTML + terminal)
+pytest --cov=app --cov-report=html --cov-report=term-missing
 
--- Create index for similarity search
-CREATE INDEX ON embeddings USING hnsw (embedding vector_cosine_ops);
+# Run specific test function
+pytest tests/test_agents.py::test_create_agent -v
+```
 
+### Code Quality
+```bash
+# Format code with Black
+black app/ tests/
 
-## 7. Security Model
-### 7.1. Authentication & Authorization
-User Authentication: JWT-based authentication with refresh tokens
-API Security: API key for service-to-service communication
-Google OAuth: Scope-limited access with minimal privileges
-Token Storage: Encrypted at rest using AES-256
-Permission Model: RBAC (Role-Based Access Control) for agent management
-### 7.2. Data Protection
-Encryption in Transit: TLS 1.3 for all communications
-Encryption at Rest: AES-256 for sensitive data
-Token Rotation: Automatic refresh for OAuth tokens
-Audit Logging: All access and execution events logged
+# Sort imports with isort
+isort app/ tests/
 
+# Lint code with flake8
+flake8 app/ tests/
 
-## 8. Performance & Scalability
-### 8.1. Performance Optimization
-Database Optimization:
-Connection pooling with PgBouncer
-Read replicas for query scaling
-Indexing strategies for frequent queries
-Partitioning for large tables (executions, embeddings)
-Caching Strategy:
-Redis for session data and frequent queries
-Agent execution result caching
-CDN for static assets
-Asynchronous Processing:
-Celery/RQ for background tasks
-Message queue (RabbitMQ/Kafka) for task distribution
-Webhook support for long-running operations
-### 8.2. Scalability Architecture
-Microservices: Independent scaling for each service component
-Containerization: Docker containers with Kubernetes orchestration
-Auto-scaling: Horizontal pod autoscaling based on CPU/memory
-Load Balancing: Layer 7 load balancing with session affinity
-Database Scaling: Read replicas and connection pooling
+# Type checking with mypy
+mypy app/
+```
 
+## Architecture Overview
 
-## 9. Monitoring & Observability
-### 9.1. Monitoring Stack
-Metrics: Prometheus + Grafana for system metrics
-Logging: ELK stack (Elasticsearch, Logstash, Kibana)
-Tracing: Jaeger for distributed tracing
-Health Checks: Endpoint for service health monitoring
-### 9.2. Key Metrics
-API response times (P50, P90, P99)
-Error rates by endpoint
-Agent execution success rate
-Database query performance
-Authentication success/failure rates
-Resource utilization (CPU, memory, storage)
+### Core Architecture
+- **FastAPI Application**: Async web framework with automatic OpenAPI documentation
+- **SQLAlchemy 2.0**: Async ORM with PostgreSQL and pgvector extension
+- **Multi-layer Authentication**: JWT users + API keys with plan-based expiration
+- **Agent Management**: LangChain-based AI agents with configurable tools
+- **Tool Ecosystem**: Built-in tools plus custom tool registration
+- **Asynchronous Execution**: Background agent execution with session-scoped memory
 
+### Key Components
 
-## 10. Deployment Strategy
-### 10.1. Infrastructure
-Cloud Provider: AWS/GCP/Azure
-Compute: Kubernetes cluster
-Database: Managed PostgreSQL service (RDS/Cloud SQL)
-Cache: Managed Redis service
-Storage: Object storage (S3/GCS)
-### 10.2. CI/CD Pipeline
-Development: Feature branches with PR reviews
-Testing: Automated unit, integration, and load tests
-Staging: Environment for UAT and performance testing
-Production: Blue-green deployment with zero downtime
-Rollback: Automated rollback on failure detection
+#### Application Structure (`app/`)
+- `main.py`: FastAPI app with middleware, exception handlers, and OAuth callback routing
+- `api/v1/`: API endpoints (agents, auth, tools)
+- `core/`: Configuration, database connection, logging, dependencies
+- `models/`: SQLAlchemy ORM models (User, Agent, Tool, AuthToken, etc.)
+- `services/`: Business logic (auth, execution, tool management)
+- `tools/`: Built-in tool implementations (Gmail, Google Sheets, etc.)
+- `integrations/`: Reserved for external integrations
+- `schemas/`: Pydantic models for request/response validation
 
+#### Database Models
+- **User**: Authentication and user management
+- **Agent**: AI agent configuration with tool whitelist and settings
+- **Tool**: Tool registry with JSON schema validation
+- **AuthToken**: Encrypted OAuth token storage with scope management
+- **ApiKey**: Plan-based API keys (PRO_M: 30 days, PRO_Y: 365 days)
+- **Execution**: Agent execution history with session memory
+- **Embedding**: Vector storage for RAG functionality (requires pgvector)
 
-## 11. Risks & Mitigations
-Risk
-Mitigation
-OAuth Token Compromise	Short-lived tokens, automatic rotation, minimal scope
-Database Performance	Connection pooling, read replicas, query optimization
-LLM Dependency	Multi-LLM support, fallback mechanisms
-Tool Execution Security	Sandboxed execution, resource limits
-High Load Handling	Auto-scaling, queueing, rate limiting
-Data Privacy	Data encryption, anonymization, compliance checks
+#### Authentication System
+- **Two-step process**: User registration → API key generation
+- **JWT tokens**: For user authentication
+- **API keys**: Plan-based access with expiration
+- **Google OAuth**: Dynamic scope generation based on selected tools
+- **Token management**: Encrypted storage with automatic refresh
 
-## 12. Success Metrics
-Performance: 99th percentile latency < 1s for API calls
-Reliability: 99.95% uptime
-Scalability: Support 10,000+ concurrent agents
-Adoption: 500+ active agents within 3 months
-Security: Zero critical security incidents
+### Agent Execution
+- **Session-scoped memory**: Conversation history persisted per session ID
+- **Asynchronous processing**: Background execution with status tracking
+- **RAG support**: Document upload and pgvector-based retrieval
+- **Tool execution**: Built-in and custom tool integration
+
+## Development Guidelines
+
+### Database Development
+- Use Alembic for all schema changes
+- Test database changes with `alembic upgrade head` locally first
+- The `executions` table stores conversation history and is replayed for context
+- Always use UUID primary keys for security
+- JSONB columns provide flexibility for agent/tool configurations
+
+### API Development
+- Follow FastAPI patterns with dependency injection
+- Use Pydantic schemas for all request/response validation
+- Implement proper error handling with logging
+- All endpoints require authentication (JWT or API key)
+- OAuth callbacks are handled dynamically based on configuration
+
+### Testing
+- Tests use a separate test database (`langchain_api_test`)
+- Agent execution is stubbed in tests to avoid external API calls
+- Use pytest fixtures for database setup and teardown
+- Coverage reporting includes HTML output in `htmlcov/` directory
+
+### Configuration Management
+- All sensitive data must be in environment variables
+- Use Pydantic Settings for type-safe configuration
+- Database URL must include database name for testing
+- OAuth scopes are generated dynamically based on tool selection
+
+### Security Considerations
+- Never commit API keys or secrets
+- OAuth tokens are encrypted at rest
+- Scopes are minimized based on selected tools
+- API keys have plan-based expiration
+- Input validation on all endpoints
+
+## Production Deployment
+
+### Environment Setup
+- Use managed PostgreSQL and Redis services
+- Enable pgvector extension in production database
+- Configure SSL/TLS certificates
+- Set proper CORS origins for production domains
+- Use environment-specific configuration files
+
+### Performance Considerations
+- Database connection pooling is configured
+- Redis caching for session management
+- Async processing for agent execution
+- Request logging and monitoring enabled
+- Health check endpoints available at `/health`
+
+### Docker Deployment
+- Multi-stage build with Python 3.11
+- Non-root user execution
+- Volume mounts for persistent data
+- Nginx reverse proxy configuration included
+- Health checks configured in containers

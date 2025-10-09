@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict, AnyHttpUrl
+from pydantic import BaseModel, Field, field_validator, model_validator, AnyHttpUrl, ConfigDict
 from typing import Optional, List, Dict, Any, Literal
 from uuid import UUID
 from datetime import datetime
@@ -15,7 +15,7 @@ class AgentConfig(BaseModel):
 
 
 class MCPServerConfig(BaseModel):
-    transport: Literal["streamable_http", "sse", "stdio", "websocket"]
+    transport: Literal["streamable_http", "sse", "stdio"] = "streamable_http"
     url: Optional[AnyHttpUrl] = None
     headers: Dict[str, str] = Field(default_factory=dict)
     command: Optional[str] = None
@@ -27,9 +27,11 @@ class MCPServerConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_transport_requirements(self) -> "MCPServerConfig":
-        if self.transport in {"streamable_http", "sse", "websocket"} and not self.url:
-            raise ValueError(f"{self.transport} transport requires a url")
-        if self.transport == "stdio" and not self.command:
+        transport = self.transport.lower()
+        if transport in {"streamable_http", "sse"}:
+            if not self.url:
+                raise ValueError("HTTP/SSE transports require a URL")
+        if transport == "stdio" and not self.command:
             raise ValueError("stdio transport requires a command")
         return self
 
@@ -38,14 +40,8 @@ class AgentCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     tools: List[str] = Field(default=[])
     config: Optional[AgentConfig] = None
-    mcp_servers: Dict[str, MCPServerConfig] = Field(
-        default_factory=dict,
-        description="MCP server configurations keyed by alias",
-    )
-    allowed_tools: List[str] = Field(
-        default_factory=list,
-        description="Whitelist of MCP tool names available to this agent",
-    )
+    mcp_servers: Dict[str, MCPServerConfig] = Field(default_factory=dict)
+    allowed_tools: List[str] = Field(default_factory=list)
 
     @field_validator("tools", mode="before")
     @classmethod
@@ -67,15 +63,15 @@ class AgentCreate(BaseModel):
 
     @field_validator("allowed_tools", mode="before")
     @classmethod
-    def _validate_allowed_tools(cls, value):
+    def _dedupe_allowed_tools(cls, value):
         if value is None:
             return []
         unique = []
         seen = set()
-        for tool_name in value:
-            if tool_name is None:
+        for name in value:
+            if name is None:
                 continue
-            cleaned = tool_name.strip()
+            cleaned = name.strip()
             if not cleaned:
                 raise ValueError("Allowed tool names must not be empty")
             if cleaned not in seen:
@@ -83,14 +79,13 @@ class AgentCreate(BaseModel):
                 unique.append(cleaned)
         return unique
 
-
 class AgentUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     tools: Optional[List[str]] = None
     config: Optional[AgentConfig] = None
     status: Optional[AgentStatus] = None
-    mcp_servers: Optional[Dict[str, MCPServerConfig]] = Field(default=None)
-    allowed_tools: Optional[List[str]] = Field(default=None)
+    mcp_servers: Optional[Dict[str, MCPServerConfig]] = None
+    allowed_tools: Optional[List[str]] = None
 
     @field_validator("tools", mode="before")
     @classmethod
@@ -117,10 +112,10 @@ class AgentUpdate(BaseModel):
             return value
         unique = []
         seen = set()
-        for tool_name in value:
-            if tool_name is None:
+        for name in value:
+            if name is None:
                 continue
-            cleaned = tool_name.strip()
+            cleaned = name.strip()
             if not cleaned:
                 raise ValueError("Allowed tool names must not be empty")
             if cleaned not in seen:

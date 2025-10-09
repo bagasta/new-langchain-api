@@ -107,43 +107,90 @@ docker-compose -f docker-compose.prod.yml up -d --scale app=3
    ```
 
 3. **SSL/TLS Certificates**
-   ```bash
-   # Obtain SSL certificates
-   sudo certbot certonly --standalone -d your-domain.com
+   
+   Certificates for `new-langchain.chiefaiofficer.id` are obtained with Certbot's webroot flow after Nginx is in place. Follow the steps in [Nginx and Let's Encrypt (new-langchain.chiefaiofficer.id)](#nginx-and-lets-encrypt-new-langchainchiefaiofficerid) once the server block has been copied over.
 
-   # Copy certificates to ssl directory
-   sudo cp /etc/letsencrypt/live/your-domain.com/fullchain.pem ./ssl/
-   sudo cp /etc/letsencrypt/live/your-domain.com/privkey.pem ./ssl/
+### Systemd Service (uvicorn on port 8123)
+
+1. Copy the provided unit file and adjust ownership or virtual environment paths as needed:
+   ```bash
+   sudo cp deploy/systemd/langchain-api-new.service /etc/systemd/system/
+   sudo chown root:root /etc/systemd/system/langchain-api-new.service
    ```
 
-### Systemd Service
+2. Edit `/etc/systemd/system/langchain-api-new.service` so `User`, `Group`, `WorkingDirectory`, and the `Environment=PATH=` entry match how the project is installed on your server. The template defaults to `root` with the repository at `/home/bagas/Langchain-API-new`; change those values if your deployment user or path differ. The unit expects a virtual environment at `.venv/` in the project root—update the `Environment` and `ExecStart` lines if your `uvicorn` binary lives elsewhere.
 
-Create `/etc/systemd/system/langchain-api.service`:
+3. Store production secrets in `/etc/langchain-api-new.env` so they are not hard-coded in the unit file:
+   ```bash
+   sudo tee /etc/langchain-api-new.env >/dev/null <<'EOF'
+   DATABASE_URL=postgresql://postgres:Binatanglaut123.@localhost:5432/langchain_api_new
+   REDIS_URL=redis://redis-host:6379/0
+   SECRET_KEY=cleviopro
+   EOF
+   sudo chown root:root /etc/langchain-api-new.env
+   sudo chmod 640 /etc/langchain-api-new.env
+   ```
 
-```ini
-[Unit]
-Description=LangChain Agent API
-After=network.target
+4. Reload systemd and start the service so it stays up continuously:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now langchain-api-new
+   sudo systemctl status langchain-api-new
+   ```
 
-[Service]
-Type=exec
-User=app
-Group=app
-WorkingDirectory=/opt/langchain-api
-Environment=PATH=/opt/langchain-api/venv/bin
-ExecStart=/opt/langchain-api/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-Restart=always
-RestartSec=10
+The service launches `uvicorn app.main:app --host 127.0.0.1 --port 8123 --proxy-headers` and restarts automatically on failure, similar to a PM2 process manager.
 
-[Install]
-WantedBy=multi-user.target
-```
+### Nginx and Let's Encrypt (new-langchain.chiefaiofficer.id)
 
-Enable and start the service:
-```bash
-sudo systemctl enable langchain-api
-sudo systemctl start langchain-api
-```
+1. Reset any previous vhost and prepare the webroot used for HTTP validation:
+   ```bash
+   sudo rm -f /etc/nginx/sites-enabled/new-langchain
+   sudo rm -f /etc/nginx/sites-available/new-langchain
+   sudo mkdir -p /var/www/certbot/.well-known/acme-challenge
+   sudo chown -R www-data:www-data /var/www/certbot
+   sudo find /var/www/certbot -type d -exec chmod 755 {} \;
+   sudo find /var/www/certbot -type f -exec chmod 644 {} \;
+   ```
+
+2. Copy the provided HTTP-only server block, enable it, then validate that plain HTTP works:
+   ```bash
+   sudo cp deploy/nginx/new-langchain.conf /etc/nginx/sites-available/new-langchain
+   sudo ln -s /etc/nginx/sites-available/new-langchain /etc/nginx/sites-enabled/
+   sudo nginx -t
+   sudo systemctl reload nginx
+   echo ok | sudo tee /var/www/certbot/.well-known/acme-challenge/test.txt
+   curl http://new-langchain.chiefaiofficer.id/.well-known/acme-challenge/test.txt   # should return 'ok'
+   ```
+
+   Leave the HTTPS `listen` directives in the config commented out for now so nginx only serves HTTP while Certbot validates.
+
+3. Request certificates for `new-langchain.chiefaiofficer.id` using the webroot method:
+   ```bash
+   sudo certbot certonly \
+     --webroot -w /var/www/certbot \
+     -d new-langchain.chiefaiofficer.id \
+     --agree-tos --email you@example.com --non-interactive
+   ```
+   Certbot writes the certificate chain and private key to `/etc/letsencrypt/live/new-langchain.chiefaiofficer.id/`.
+
+4. Enable HTTPS and proxying after the certificate is issued:
+   ```bash
+   sudo sed -i 's/^\([[:space:]]*\)#listen/\1listen/' /etc/nginx/sites-available/new-langchain
+   sudo nginx -t
+   sudo systemctl reload nginx
+   sudo rm /var/www/certbot/.well-known/acme-challenge/test.txt
+   ```
+
+   Re-run the curl check against HTTPS to confirm the proxy is live:
+   ```bash
+   curl -I https://new-langchain.chiefaiofficer.id/health
+   ```
+
+5. Certbot installs a twice-daily renewal timer automatically. You can verify it and run a dry run renewal check with:
+   ```bash
+   systemctl list-timers | grep certbot
+   sudo certbot renew --dry-run
+   ```
 
 ## Cloud Deployment
 

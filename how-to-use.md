@@ -14,8 +14,9 @@ Use `$BASE_URL$API_PREFIX` as the base for all versioned endpoints and include `
 
 The API now uses a two-step authentication process:
 
-1. **Register User Account**: Create a user account without generating an API key
-2. **Generate API Key**: Request an API key with specific plan and expiration
+1. **Register User Account**: Create a user account
+2. **Activate User**: User account needs to be activated (contact admin or check database)
+3. **Generate API Key**: Request an API key with specific plan and expiration
 
 ### Example Flow
 
@@ -25,7 +26,10 @@ REGISTER_RESPONSE=$(curl -s -X POST "$BASE_URL$API_PREFIX/auth/register?email=ne
 USER_ID=$(echo $REGISTER_RESPONSE | jq -r '.user_id')
 echo "Registered user: $USER_ID"
 
-# Step 2: Generate API key with PRO_M plan (30 days)
+# Step 2: User needs to be activated (contact admin or check database status)
+# Note: Users are created as "inactive" by default and need activation
+
+# Step 3: Generate API key with PRO_M plan (30 days)
 API_KEY_RESPONSE=$(curl -s -X POST "$BASE_URL$API_PREFIX/auth/api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -33,13 +37,30 @@ API_KEY_RESPONSE=$(curl -s -X POST "$BASE_URL$API_PREFIX/auth/api-key" \
     "password": "changeme",
     "plan_code": "PRO_M"
   }')
-TOKEN=$(echo $API_KEY_RESPONSE | jq -r '.access_token')
-EXPIRES_AT=$(echo $API_KEY_RESPONSE | jq -r '.expires_at')
-echo "Generated API key expires at: $EXPIRES_AT"
 
-# Use the token for authenticated requests
-curl -H "Authorization: Bearer $TOKEN" "$BASE_URL$API_PREFIX/auth/me"
+# Check if API key generation was successful
+if echo "$API_KEY_RESPONSE" | jq -e '.access_token' > /dev/null 2>&1; then
+    TOKEN=$(echo $API_KEY_RESPONSE | jq -r '.access_token')
+    EXPIRES_AT=$(echo $API_KEY_RESPONSE | jq -r '.expires_at')
+    echo "Generated API key expires at: $EXPIRES_AT"
+
+    # Use the token for authenticated requests
+    curl -H "Authorization: Bearer $TOKEN" "$BASE_URL$API_PREFIX/auth/me"
+else
+    echo "API key generation failed: $API_KEY_RESPONSE"
+    echo "User account might not be activated yet. Contact administrator."
+fi
 ```
+
+### Troubleshooting Authentication
+
+**If you get "User account is inactive" error:**
+1. The user registration creates accounts with "inactive" status by default
+2. Contact your system administrator to activate the user account
+3. Or check if there's an activation endpoint available
+
+**Alternative: Use existing active user:**
+If you have access to an already activated user account, use that email/password for API key generation.
 
 ## Public Endpoints
 
@@ -137,32 +158,58 @@ curl -H "Authorization: Bearer $TOKEN" "$BASE_URL$API_PREFIX/auth/me"
   ```
   Include Google tools only if you have already linked the relevant account, otherwise the response will return `auth_required: true` and an OAuth URL.
 
-  To attach tools from Model Context Protocol (MCP) servers (for example an n8n MCP backend), extend the payload with `mcp_servers` plus an `allowed_tools` whitelist:
+  If you want every agent to access tools hosted on your FastMCP server, declare the following environment variables before starting the API (see `mcp-server.md`). Streamable HTTP is preferred, with SSE as an optional fallback:
+
+  ```
+  MCP_HTTP_URL=http://localhost:8080/mcp/stream
+  MCP_HTTP_TOKEN=your-secret-token
+  MCP_HTTP_ALLOWED_TOOLS=calculator,web_search
+
+  # Optional SSE fallback
+  MCP_SSE_URL=http://localhost:8080
+  MCP_SSE_TOKEN=your-secret-token
+  MCP_SSE_ALLOWED_TOOLS=calculator,web_search
+  ```
+
+  With these values in place the execution service retrieves remote tool definitions over HTTP and merges them with the agent's configured tools, falling back to SSE if available.
+
+  Sanity check the connection:
+
+  ```bash
+  curl -X POST "$MCP_HTTP_URL/mcp/" \\
+    -H "Authorization: Bearer $MCP_HTTP_TOKEN" \\
+    -H "Content-Type: application/json" \\
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+  ```
+
+  ### Creating Agents with MCP Tools
+
+  Once the environment variables are in place, creating an agent that can use MCP tools is the same as creating any other agent—the MCP tools are added automatically at runtime. A minimal example:
 
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/agents/" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{
-          "name": "Market Analyst",
-          "tools": ["gmail"],
+          "name": "Research Assistant (MCP)",
+          "tools": [],
           "config": {
             "llm_model": "gpt-4o-mini",
-            "temperature": 0.5
+            "temperature": 0.5,
+            "system_prompt": "You can call remote tools to calculate, fetch, or search information."
           },
           "mcp_servers": {
-            "market": {
+            "langchain_mcp": {
               "transport": "streamable_http",
-              "url": "https://n8n.example.com/mcp/market/sse",
-              "headers": {"Authorization": "Bearer TENANT_ABC"}
+              "url": "http://localhost:8080/mcp/stream",
+              "headers": {"Authorization": "Bearer jango"}
             }
           },
-          "allowed_tools": ["market.google_trends", "market.shopee_scrape"]
+          "allowed_tools": ["calculator", "web_fetch", "web_search", "pdf_generate"]
         }'
   ```
-  Only tools whose fully qualified names appear in `allowed_tools` are exposed to the agent. If you omit both `mcp_servers` and `allowed_tools`, the agent behaves exactly as it did prior to MCP support (built-in and custom database tools only).
 
-  > **n8n tip:** If your MCP server comes from an n8n workflow trigger, ensure the `url` you provide reaches its Server-Sent Events (SSE) endpoint (typically the workflow URL ending in `/sse`). The API now retries with `/sse` automatically when it detects n8n-style 404s, but configuring the exact SSE endpoint avoids an extra round-trip.
+  The response payload includes the stored MCP configuration. You can confirm the tools are available by running an execution that prompts the model to call one of the MCP tools (e.g., a calculator request) and checking the execution logs for tool usage.
 
 - **GET /** list agents
   ```bash
@@ -206,6 +253,7 @@ curl -H "Authorization: Bearer $TOKEN" "$BASE_URL$API_PREFIX/auth/me"
           "session_id": "demo-session-1"
         }'
   ```
+
   The response includes a `response` field containing the assistant's reply. Conversation history is persisted in the `executions` table and is automatically replayed on subsequent executions.
   Use the optional `session_id` field to partition memory (only executions sharing the same session id are replayed).
 
@@ -374,12 +422,6 @@ If the response includes `"auth_required": true`, you need to complete Google OA
 1. Visit the `auth_url` provided in the response
 2. Complete the OAuth flow
 3. The agent will then be able to use Google tools
-
-#### MCP Tools Not Showing Up
-If MCP-hosted tools are missing at runtime:
-- Ensure `langchain-mcp-adapters` is installed in the API environment (`pip install langchain-mcp-adapters>=0.0.5`).
-- Double-check that the agent payload includes both a valid `mcp_servers` entry and each desired tool in `allowed_tools`.
-- Confirm the MCP server is reachable and returning tool metadata; unreachable servers are skipped with a warning in the API logs.
 
 ### API Key Issues
 

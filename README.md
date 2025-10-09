@@ -9,7 +9,7 @@ A scalable API for creating and managing AI agents with dynamic tool integration
 - **Two-Step Authentication**: Separate user registration from API key generation
 - **Plan-Based API Keys**: Generate API keys with expiration periods (PRO_M: 30 days, PRO_Y: 365 days)
 - **Built-in Tools**: Gmail, Google Sheets, Google Calendar, CSV/JSON file operations
-- **MCP Tool Federation**: Connect external MCP servers (e.g., n8n) and merge their tools into any agent with whitelist filters
+- **External MCP (SSE) Tools**: Optionally connect to a FastMCP server over SSE to extend the toolset
 - **Retrieval-Augmented Generation (RAG)**: Upload domain documents, embed them with pgvector, and have agents reference the most relevant chunks automatically.
 - **Custom Tools**: Register and execute custom tools with JSON Schema validation
 - **Scalable Architecture**: Microservices-ready with PostgreSQL and Redis
@@ -100,6 +100,7 @@ Agents are AI assistants that can use tools to accomplish tasks. Each agent has:
 Tools are functions that agents can use:
 - **Built-in**: Gmail, Google Sheets, Google Calendar, CSV/JSON operations
 - **Custom**: User-defined tools with JSON Schema validation
+- **External MCP HTTP/SSE**: Configure `MCP_HTTP_URL` (streamable HTTP) or `MCP_SSE_URL` (SSE) to load tools exposed by a FastMCP server and merge them into every agent execution. Provide the matching token via `MCP_HTTP_TOKEN`/`MCP_SSE_TOKEN`, and optionally restrict exposure with the corresponding `*_ALLOWED_TOOLS` list.
 
 ### Authentication
 
@@ -152,6 +153,68 @@ The API uses a two-step authentication process:
 - `PUT /api/v1/tools/{id}` - Update tool
 - `DELETE /api/v1/tools/{id}` - Delete tool
 - `POST /api/v1/tools/execute` - Execute tool directly
+
+## Configuring MCP Integration
+
+If you run the FastMCP server described in `mcp-server.md`, expose it to the LangChain API by setting these environment variables (e.g., in `.env`). Streamable HTTP is preferred for long-running requests; SSE remains available as a fallback.
+
+```
+# Streamable HTTP transport
+MCP_HTTP_URL=http://localhost:8080/mcp/stream
+MCP_HTTP_TOKEN=your-secret-token
+MCP_HTTP_ALLOWED_TOOLS=calculator,web_fetch
+
+# Optional SSE fallback
+MCP_SSE_URL=http://localhost:8080
+MCP_SSE_TOKEN=your-secret-token
+MCP_SSE_ALLOWED_TOOLS=calculator,web_fetch
+```
+
+Make sure the URL points at the MCP base path (e.g., `/mcp/`). For HTTP, a trailing slash is required.
+
+Quick connectivity checks:
+
+```bash
+curl -X POST "$MCP_HTTP_URL/mcp/" \\
+  -H "Authorization: Bearer $MCP_HTTP_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Optional SSE sanity check
+curl -N -H "Authorization: Bearer $MCP_SSE_TOKEN" "$MCP_SSE_URL/mcp/sse" | head
+
+# Calculator smoke test
+curl -X POST "$MCP_HTTP_URL/tools/calculator/call" \\
+  -H "Authorization: Bearer $MCP_HTTP_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"arguments":{"expression":"6*7"}}'
+```
+
+To create an agent that references a specific MCP server over streamable HTTP:
+
+```bash
+curl -X POST "$BASE_URL$API_PREFIX/agents/" \\
+  -H "Authorization: Bearer $TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+        "name": "Streamable HTTP MCP Agent",
+        "tools": [],
+        "config": {
+          "llm_model": "gpt-4o-mini",
+          "temperature": 0.5,
+          "max_tokens": 1000,
+          "system_prompt": "You can call remote MCP tools (calculator, web_fetch, etc.) whenever it helps."
+        },
+        "mcp_servers": {
+          "langchain_mcp": {
+            "transport": "streamable_http",
+            "url": "http://localhost:8080/mcp/stream",
+            "headers": {"Authorization": "Bearer jango"}
+          }
+        },
+        "allowed_tools": ["calculator", "web_fetch", "web_search", "pdf_generate"]
+      }'
+```
 
 ## Example Usage
 
@@ -213,32 +276,6 @@ print(f"Created agent: {agent['id']}")
 if agent["auth_required"]:
     print(f"Complete Google OAuth: {agent['auth_url']} (state={agent['auth_state']})")
 ```
-
-To attach MCP tools, include `mcp_servers` and an `allowed_tools` whitelist when creating or updating an agent:
-
-```json
-{
-  "name": "Market Research Agent",
-  "tools": ["gmail"],
-  "config": {
-    "llm_model": "gpt-4o-mini",
-    "temperature": 0.5
-  },
-  "mcp_servers": {
-    "market": {
-      "transport": "streamable_http",
-      "url": "https://n8n.example.com/mcp/market/sse",
-      "headers": {"Authorization": "Bearer TENANT_ABC"}
-    }
-  },
-  "allowed_tools": [
-    "market.google_trends",
-    "market.shopee_scrape"
-  ]
-}
-```
-
-`allowed_tools` enforces least-privilege access: MCP tools are only exposed to the LangChain agent if their fully qualified name is present in the list. When `mcp_servers` is omitted, behavior falls back to the legacy built-in tool handling.
 
 ### Executing an Agent
 

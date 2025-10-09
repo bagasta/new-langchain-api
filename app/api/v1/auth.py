@@ -278,6 +278,52 @@ async def generate_api_key(
         )
 
 
+@router.post("/activate")
+async def activate_user(
+    email: str,
+    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Activate a user account"""
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+
+        if user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User is already active"
+            )
+
+        # Activate the user
+        user.is_active = True
+        db.commit()
+        db.refresh(user)
+
+        logger.info("User activated successfully", user_id=str(user.id))
+
+        return {
+            "message": "User activated successfully",
+            "user_id": str(user.id),
+            "email": user.email,
+            "is_active": user.is_active
+        }
+
+    except HTTPException as exc:
+        logger.warning("User activation failed", error=str(exc.detail), email=email)
+        raise exc
+    except Exception as e:
+        logger.error("User activation failed", error=str(e), email=email)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Activation failed: {str(e)}"
+        )
+
+
 @router.get("/tokens")
 async def get_user_tokens(
     current_user: User = Depends(get_current_user),
