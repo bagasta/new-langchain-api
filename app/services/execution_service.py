@@ -1,9 +1,8 @@
-import asyncio
 import json
 import re
 import time
-from typing import Dict, Any, Optional, List, Mapping
-from uuid import UUID
+from typing import Dict, Any, Optional, List, Mapping, Iterable, Sequence
+from uuid import UUID, uuid4
 from sqlalchemy.orm import Session
 from sqlalchemy import inspect, text
 from fastapi import HTTPException, status
@@ -17,15 +16,21 @@ from app.services.auth_service import AuthService
 from app.services.embedding_service import EmbeddingService
 from app.core.logging import logger
 from app.core.config import settings
-from app.integrations.mcp_sse import (
-    load_mcp_tools_from_connections,
-    build_http_connection_config,
-    build_sse_connection_config,
-    MCPClientError,
+from app.core.mcp_config import (
+    MCPConnectionSettings,
+    MCPToolFilter,
+    get_default_connection_settings,
+    get_default_tool_filter,
+)
+from app.integrations.langchain_mcp_toolkit import (
+    MCPIntegrationError,
+    MCPToolSelectionError,
+    mcp_agent_executor_context,
 )
 from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, ToolMessage
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import Tool as LangChainTool, BaseTool
 
 
@@ -131,6 +136,7 @@ class ExecutionService:
         # Get agent configuration
         config = agent.config or {}
         llm_config = config.get("llm_config") or config
+        parameters = dict(parameters or {})
 
         # Initialize LLM
         api_key = (
@@ -170,20 +176,24 @@ class ExecutionService:
         )
 
         # Get agent tools
-        agent_tools = self.db.query(AgentTool).filter(AgentTool.agent_id == agent.id).all()
+        agent_tools = (
+            self.db.query(AgentTool).filter(AgentTool.agent_id == agent.id).all()
+        )
         tool_records: List[Tool] = []
         for agent_tool in agent_tools:
-            tool_record = self.db.query(Tool).filter(Tool.id == agent_tool.tool_id).first()
+            tool_record = (
+                self.db.query(Tool).filter(Tool.id == agent_tool.tool_id).first()
+            )
             if tool_record:
                 tool_records.append(tool_record)
 
-        tool_names = [tool.name for tool in tool_records]
+        builtin_tool_names = [tool.name for tool in tool_records if tool.name]
 
         logger.debug(
             "Resolved built-in tools",
             agent_id=str(agent.id),
             builtin_tool_count=len(tool_records),
-            builtin_tool_names=tool_names,
+            builtin_tool_names=builtin_tool_names,
         )
 
         # Build conversation history context
@@ -201,153 +211,122 @@ class ExecutionService:
             if tool_instance:
                 langchain_tools.append(tool_instance)
 
-        # Load MCP tools over SSE transport if configured
-        mcp_tools: List[BaseTool] = []
-        connections: Dict[str, Mapping[str, object]] = {}
-
-        agent_connections = getattr(agent, "mcp_servers", None) or {}
-        if agent_connections:
-            connections = agent_connections
-        else:
-            if settings.MCP_HTTP_URL:
-                connections["env_http"] = build_http_connection_config(
-                    settings.MCP_HTTP_URL,
-                    settings.MCP_HTTP_TOKEN,
-                )
-            if settings.MCP_SSE_URL:
-                connections["env_sse"] = build_sse_connection_config(
-                    settings.MCP_SSE_URL,
-                    settings.MCP_SSE_TOKEN,
-                )
-
-        whitelist: List[str] = list(getattr(agent, "allowed_tools", []) or [])
-        if not whitelist:
-            if settings.MCP_HTTP_ALLOWED_TOOLS:
-                whitelist.extend(settings.MCP_HTTP_ALLOWED_TOOLS)
-            if settings.MCP_SSE_ALLOWED_TOOLS:
-                whitelist.extend(settings.MCP_SSE_ALLOWED_TOOLS)
-
-        if connections:
-            try:
-                mcp_tools = await load_mcp_tools_from_connections(
-                    connections=connections,
-                    allowed_tools=whitelist or None,
-                )
-                if mcp_tools:
-                    logger.info(
-                        "Loaded MCP tools",
-                        agent_id=str(agent.id),
-                        tool_count=len(mcp_tools),
-                        tool_names=[getattr(tool, "name", "") for tool in mcp_tools],
-                    )
-            except MCPClientError as mcp_error:
-                logger.warning(
-                    "Failed to load MCP tools; continuing without them",
-                    agent_id=str(agent.id),
-                    error=str(mcp_error),
-                )
-
-        if mcp_tools:
-            langchain_tools.extend(mcp_tools)
-            tool_names.extend(
-                [
-                    tool_name
-                    for tool_name in (getattr(tool, "name", None) for tool in mcp_tools)
-                    if tool_name
-                ]
-            )
-
-
-        # Create prompt template
         base_system_prompt = (
             llm_config.get("system_prompt")
             or config.get("system_prompt")
             or f"You are a helpful AI assistant named {agent.name}."
         )
 
-        tool_description = ""
-        unique_tool_names = sorted({name for name in tool_names if name})
-
-        if unique_tool_names:
-            tool_description = (
-                "You have access to the following tools to help users: "
-                f"{', '.join(unique_tool_names)}."
-            )
-
-        combined_system_prompt = base_system_prompt.strip()
-        guidance_blocks = []
-        if tool_description:
-            guidance_blocks.append(tool_description)
-        if langchain_tools:
-            guidance_blocks.append(
-                "When a user request requires information or actions from an available tool, "
-                "you must call that tool before responding. Never claim an email was sent, "
-                "data was read, or content was written unless the relevant tool execution "
-                "actually reports success. If a tool call fails, explain the failure instead "
-                "of fabricating a result."
-            )
-            guidance_blocks.append(
-                "Each tool expects a single JSON object passed as its argument. Provide well-formed JSON containing "
-                "all required fields whenever you invoke a tool."
-            )
-        tool_names_lower = {name.lower() for name in unique_tool_names}
-        if "gmail" in tool_names_lower:
-            guidance_blocks.append(
-                "For any email task you must call the Gmail tool. Supported actions include 'send', 'read', 'search', 'create_draft', 'get_message', and 'get_thread'. "
-                "For 'send' and 'create_draft', include 'to', 'subject', and 'message' (or 'body'), plus optional 'is_html', 'cc', or 'bcc'. "
-                "For reading, provide an 'email_id'/'message_id' or a search query with 'max_results'; set 'mark_as_read' to true only when the user explicitly asks. "
-                "If the user asks to send an email but omits required information, ask follow-up questions before calling the tool."
-            )
-        if "google_sheets" in tool_names_lower:
-            guidance_blocks.append(
-                "For spreadsheet actions, call the Google Sheets tool with the requested operation and range." 
-                "Do not fabricate spreadsheet contents."
-            )
-        if "google_calendar" in tool_names_lower:
-            guidance_blocks.append(
-                "Use the Google Calendar tool to list events, fetch event details, or create calendar entries. "
-                "Provide start/end timestamps in RFC3339 or YYYY-MM-DD format, and specify attendees as emails when needed."
-            )
-        if guidance_blocks:
-            combined_system_prompt = f"{combined_system_prompt}\n\n" + "\n\n".join(guidance_blocks)
-
         rag_context = self._build_rag_context(agent.id, input_text, parameters)
-        if rag_context:
-            combined_system_prompt = f"{combined_system_prompt}\n\nContext:\n{rag_context}".strip()
 
-        logger.info(
-            "Launching LangChain agent graph",
+        mcp_connection = self._resolve_mcp_connection_settings(agent, parameters)
+        tool_filter = self._resolve_mcp_tool_filter(agent, parameters)
+
+        logger.debug(
+            "Resolved MCP filter",
             agent_id=str(agent.id),
-            total_tools=len(langchain_tools),
-            tool_names=[getattr(tool, "name", "") for tool in langchain_tools],
+            filter_names=sorted(getattr(tool_filter, "names", set())),
+            filter_categories=sorted(getattr(tool_filter, "categories", set())),
+            connection_url=getattr(mcp_connection, "sse_url", None),
         )
 
-        graph = create_react_agent(
-            model=llm,
-            tools=langchain_tools,
-            prompt=combined_system_prompt,
-        )
+        def build_prompt_template(
+            all_tools: Sequence[BaseTool],
+            mcp_subset: Sequence[BaseTool],
+        ) -> ChatPromptTemplate:
+            tool_names = self._gather_tool_names(all_tools)
+            system_prompt = self._compose_system_prompt(
+                base_prompt=base_system_prompt,
+                tool_names=tool_names,
+                has_tools=bool(all_tools),
+                rag_context=rag_context,
+            )
+            logger.debug(
+                "Constructed system prompt",
+                agent_id=str(agent.id),
+                tool_names=tool_names,
+                mcp_tool_names=self._gather_tool_names(mcp_subset),
+            )
+            return ChatPromptTemplate.from_messages(
+                [
+                    ("system", system_prompt),
+                    MessagesPlaceholder(variable_name="history"),
+                    ("human", "{input}"),
+                    MessagesPlaceholder(variable_name="agent_scratchpad"),
+                ]
+            )
 
-        messages_input: List[BaseMessage] = list(conversation_history or [])
-        messages_input.append(HumanMessage(content=input_text))
+        invocation_payload = {
+            "input": input_text,
+            "history": list(conversation_history or []),
+        }
 
-        start_time = time.time()
-        logger.debug("Invoking agent graph", agent_id=str(agent.id), session_id=session_id)
-        result_state = await graph.ainvoke({"messages": messages_input})
-        execution_time = time.time() - start_time
-        logger.info(
-            "Agent graph completed",
-            agent_id=str(agent.id),
-            execution_time_ms=int(execution_time * 1000),
-        )
+        agent_executor_kwargs: Dict[str, Any] = {
+            "return_intermediate_steps": True,
+        }
 
-        result_messages = []
-        if isinstance(result_state, dict):
-            result_messages = result_state.get("messages", []) or []
+        combined_tools: List[BaseTool] = list(langchain_tools)
+        mcp_tools: List[BaseTool] = []
+        result_payload: Optional[Dict[str, Any]] = None
+        execution_time = 0.0
 
-        output_text = ""
-        tools_used: List[str] = []
-        intermediate_steps: List[Dict[str, Any]] = []
+        if mcp_connection:
+            try:
+                async with mcp_agent_executor_context(
+                    connection=mcp_connection,
+                    llm=llm,
+                    prompt_builder=build_prompt_template,
+                    tool_filter=tool_filter,
+                    base_tools=langchain_tools,
+                    agent_executor_kwargs=agent_executor_kwargs,
+                ) as resources:
+                    mcp_tools = list(resources.mcp_tools)
+                    combined_tools = list(resources.tools)
+                    self._ensure_runnable_identity(resources.executor.agent, prefix="mcp_tool_agent")
+                    logger.info(
+                        "Launching LangChain agent with MCP tools",
+                        agent_id=str(agent.id),
+                        total_tools=len(combined_tools),
+                        mcp_tool_count=len(mcp_tools),
+                        tool_names=self._gather_tool_names(combined_tools),
+                    )
+                    start_time = time.time()
+                    result_payload = await resources.executor.ainvoke(invocation_payload)
+                    execution_time = time.time() - start_time
+            except MCPToolSelectionError as exc:
+                logger.info(
+                    "No MCP tools matched filters; using built-in tools only",
+                    agent_id=str(agent.id),
+                    error=str(exc),
+                    filter_names=sorted(getattr(tool_filter, "names", set())),
+                    filter_categories=sorted(getattr(tool_filter, "categories", set())),
+                )
+            except MCPIntegrationError as exc:
+                logger.warning(
+                    "Failed to prepare MCP tools; continuing without them",
+                    agent_id=str(agent.id),
+                    error=str(exc),
+                )
+
+        if result_payload is None:
+            combined_tools = list(langchain_tools)
+            prompt = build_prompt_template(combined_tools, [])
+            agent = create_tool_calling_agent(llm, combined_tools, prompt)
+            self._ensure_runnable_identity(agent, prefix="local_tool_agent")
+            executor = AgentExecutor(
+                agent=agent,
+                tools=combined_tools,
+                **agent_executor_kwargs,
+            )
+            logger.info(
+                "Launching LangChain agent without MCP tools",
+                agent_id=str(agent.id),
+                total_tools=len(combined_tools),
+                tool_names=self._gather_tool_names(combined_tools),
+            )
+            start_time = time.time()
+            result_payload = await executor.ainvoke(invocation_payload)
+            execution_time = time.time() - start_time
 
         def _stringify(content: Any) -> str:
             if content is None:
@@ -359,26 +338,70 @@ class ExecutionService:
             except (TypeError, ValueError):
                 return str(content)
 
-        for message in result_messages:
-            if isinstance(message, AIMessage):
-                output_text = _stringify(message.content)
-            elif isinstance(message, ToolMessage):
-                tool_name = getattr(message, "tool", None) or getattr(message, "name", None)
-                if tool_name and tool_name not in tools_used:
-                    tools_used.append(tool_name)
-                intermediate_steps.append(
-                    {
-                        "tool": tool_name,
-                        "observation": _stringify(message.content),
-                    }
+        result_messages: List[BaseMessage] = []
+        tools_used: List[str] = []
+        intermediate_steps: List[Dict[str, Any]] = []
+
+        intermediate_entries = []
+        if result_payload:
+            intermediate_entries = result_payload.get("intermediate_steps") or []
+
+        for step in intermediate_entries:
+            action = None
+            observation: Any = None
+
+            if isinstance(step, tuple) and len(step) == 2:
+                action, observation = step
+            elif isinstance(step, Mapping):
+                action = step.get("action")
+                observation = step.get("observation")
+            else:
+                continue
+
+            tool_name = getattr(action, "tool", None) if action else None
+            if tool_name and tool_name not in tools_used:
+                tools_used.append(tool_name)
+
+            tool_call_id = None
+            if action is not None:
+                tool_call_id = getattr(action, "tool_call_id", None) or getattr(action, "id", None)
+
+            if not tool_call_id:
+                generated_suffix = len(intermediate_steps) + 1
+                tool_call_id = f"{(tool_name or 'tool').replace(' ', '_')}_{generated_suffix}"
+
+            observation_text = _stringify(observation)
+            intermediate_steps.append(
+                {
+                    "tool": tool_name,
+                    "observation": observation_text,
+                    "tool_call_id": tool_call_id,
+                }
+            )
+
+            result_messages.append(
+                ToolMessage(
+                    content=observation_text,
+                    tool_call_id=tool_call_id,
+                    name=tool_name or None,
                 )
+            )
+
+        output_text = _stringify(result_payload.get("output") if result_payload else "")
+
+        result_messages.append(AIMessage(content=output_text))
 
         return {
             "output": output_text,
             "intermediate_steps": intermediate_steps,
             "tools_used": tools_used,
             "execution_time": execution_time,
-            "final_messages": [message.to_json() if hasattr(message, "to_json") else _stringify(message.content) for message in result_messages],
+            "final_messages": [
+                message.to_json()
+                if hasattr(message, "to_json")
+                else _stringify(getattr(message, "content", ""))
+                for message in result_messages
+            ],
         }
 
     def _build_rag_context(
@@ -429,11 +452,283 @@ class ExecutionService:
         )
         return "\n\n".join(lines)
 
+    def _resolve_mcp_connection_settings(
+        self,
+        agent: Agent,
+        parameters: Mapping[str, Any],
+    ) -> Optional[MCPConnectionSettings]:
+        override_url = self._extract_non_empty_str(parameters.get("mcp_sse_url"))
+        override_token = self._extract_non_empty_str(parameters.get("mcp_sse_token"))
+        request_timeout = self._coerce_float(parameters.get("mcp_request_timeout"), 30.0)
+        connection_timeout = self._coerce_float(
+            parameters.get("mcp_connection_timeout"),
+            300.0,
+        )
+
+        if override_url:
+            return MCPConnectionSettings(
+                sse_url=override_url,
+                token=override_token or settings.MCP_SSE_TOKEN,
+                request_timeout=request_timeout,
+                connection_timeout=connection_timeout,
+            )
+
+        agent_servers = getattr(agent, "mcp_servers", None) or {}
+        if isinstance(agent_servers, Mapping):
+            for cfg in agent_servers.values():
+                connection = self._connection_from_mapping(cfg)
+                if connection:
+                    return connection
+
+        config_url = self._extract_non_empty_str((agent.config or {}).get("mcp_sse_url"))
+        if config_url:
+            return MCPConnectionSettings(
+                sse_url=config_url,
+                token=self._extract_non_empty_str((agent.config or {}).get("mcp_sse_token"))
+                or settings.MCP_SSE_TOKEN,
+                request_timeout=request_timeout,
+                connection_timeout=connection_timeout,
+            )
+
+        default_connection = get_default_connection_settings()
+        if default_connection:
+            return default_connection
+
+        return None
+
+    def _connection_from_mapping(
+        self,
+        raw_config: Any,
+    ) -> Optional[MCPConnectionSettings]:
+        if not isinstance(raw_config, Mapping):
+            return None
+
+        transport = self._extract_non_empty_str(raw_config.get("transport"))
+        if transport and transport.lower() != "sse":
+            return None
+
+        url_value = raw_config.get("url") or raw_config.get("sse_url")
+        url = self._extract_non_empty_str(url_value)
+        if not url:
+            return None
+
+        headers = raw_config.get("headers")
+        token = None
+        if isinstance(headers, Mapping):
+            token = self._extract_bearer_token(headers)
+        if not token:
+            token = self._extract_non_empty_str(raw_config.get("token"))
+
+        return MCPConnectionSettings(
+            sse_url=url,
+            token=token or settings.MCP_SSE_TOKEN,
+            request_timeout=self._coerce_float(raw_config.get("request_timeout"), 30.0),
+            connection_timeout=self._coerce_float(
+                raw_config.get("connection_timeout"),
+                300.0,
+            ),
+        )
+
+    def _resolve_mcp_tool_filter(
+        self,
+        agent: Agent,
+        parameters: Mapping[str, Any],
+    ) -> MCPToolFilter:
+        names = set()
+        categories = set()
+
+        default_filter = get_default_tool_filter()
+        names.update(default_filter.names)
+        categories.update(default_filter.categories)
+
+        config = agent.config or {}
+        names.update(self._normalise_str_iterable(config.get("allowed_mcp_tools")))
+        names.update(self._normalise_str_iterable(config.get("mcp_allowed_tools")))
+        categories.update(
+            self._normalise_str_iterable(config.get("allowed_mcp_categories"))
+        )
+        categories.update(self._normalise_str_iterable(config.get("mcp_tool_categories")))
+
+        parameter_name_keys = ("allowed_mcp_tools", "mcp_tool_names", "mcp_tools")
+        for key in parameter_name_keys:
+            names.update(self._normalise_str_iterable(parameters.get(key)))
+
+        parameter_category_keys = (
+            "allowed_mcp_categories",
+            "mcp_tool_categories",
+            "mcp_categories",
+        )
+        for key in parameter_category_keys:
+            categories.update(self._normalise_str_iterable(parameters.get(key)))
+
+        return MCPToolFilter.from_iterables(
+            names=sorted(names),
+            categories=sorted(categories),
+        )
+
+    @staticmethod
+    def _gather_tool_names(tools: Sequence[BaseTool]) -> List[str]:
+        return sorted(
+            {
+                getattr(tool, "name", "")
+                for tool in tools
+                if getattr(tool, "name", None)
+            }
+        )
+
+    def _compose_system_prompt(
+        self,
+        *,
+        base_prompt: str,
+        tool_names: Sequence[str],
+        has_tools: bool,
+        rag_context: str,
+    ) -> str:
+        combined_prompt = base_prompt.strip()
+        guidance_blocks: List[str] = []
+
+        unique_tool_names = sorted({name for name in tool_names if name})
+        if unique_tool_names:
+            guidance_blocks.append(
+                "You have access to the following tools to help users: "
+                f"{', '.join(unique_tool_names)}."
+            )
+
+        if has_tools:
+            guidance_blocks.append(
+                "When a user request requires information or actions from an available tool, "
+                "you must call that tool before responding. Never claim an email was sent, "
+                "data was read, or content was written unless the relevant tool execution "
+                "actually reports success. If a tool call fails, explain the failure instead "
+                "of fabricating a result."
+            )
+            guidance_blocks.append(
+                "Each tool expects a single JSON object passed as its argument. Provide well-formed JSON containing "
+                "all required fields whenever you invoke a tool."
+            )
+
+        tool_names_lower = {name.lower() for name in unique_tool_names}
+        if "gmail" in tool_names_lower:
+            guidance_blocks.append(
+                "For any email task you must call the Gmail tool. Supported actions include 'send', 'read', 'search', 'create_draft', 'get_message', and 'get_thread'. "
+                "For 'send' and 'create_draft', include 'to', 'subject', and 'message' (or 'body'), plus optional 'is_html', 'cc', or 'bcc'. "
+                "For reading, provide an 'email_id'/'message_id' or a search query with 'max_results'; set 'mark_as_read' to true only when the user explicitly asks. "
+                "If the user asks to send an email but omits required information, ask follow-up questions before calling the tool."
+            )
+        if "google_sheets" in tool_names_lower:
+            guidance_blocks.append(
+                "For spreadsheet actions, call the Google Sheets tool with the requested operation and range."
+                "Do not fabricate spreadsheet contents."
+            )
+        if "google_calendar" in tool_names_lower:
+            guidance_blocks.append(
+                "Use the Google Calendar tool to list events, fetch event details, or create calendar entries. "
+                "Provide start/end timestamps in RFC3339 or YYYY-MM-DD format, and specify attendees as emails when needed."
+            )
+
+        if guidance_blocks:
+            combined_prompt = f"{combined_prompt}\n\n" + "\n\n".join(guidance_blocks)
+
+        if rag_context:
+            combined_prompt = f"{combined_prompt}\n\nContext:\n{rag_context}".strip()
+
+        return combined_prompt
+
+    @staticmethod
+    def _coerce_float(value: Any, default: float) -> float:
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _extract_non_empty_str(value: Any) -> Optional[str]:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped:
+                return stripped
+        return None
+
+    @staticmethod
+    def _extract_bearer_token(headers: Mapping[str, Any]) -> Optional[str]:
+        for key in ("Authorization", "authorization"):
+            header_value = headers.get(key)
+            if isinstance(header_value, str):
+                stripped = header_value.strip()
+                if not stripped:
+                    continue
+                if stripped.lower().startswith("bearer "):
+                    return stripped.split(" ", 1)[1].strip()
+                return stripped
+        return None
+
+    @staticmethod
+    def _normalise_str_iterable(value: Any) -> List[str]:
+        if value is None:
+            return []
+
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            if stripped.startswith("[") and stripped.endswith("]"):
+                try:
+                    parsed = json.loads(stripped)
+                    if isinstance(parsed, list):
+                        return [
+                            str(item).strip()
+                            for item in parsed
+                            if str(item).strip()
+                        ]
+                except json.JSONDecodeError:
+                    return []
+            if "," in stripped:
+                return [item.strip() for item in stripped.split(",") if item.strip()]
+            return [stripped]
+
+        if isinstance(value, Iterable) and not isinstance(value, (Mapping, dict, str)):
+            normalised = []
+            for item in value:
+                if item is None:
+                    continue
+                item_str = str(item).strip()
+                if item_str:
+                    normalised.append(item_str)
+            return normalised
+
+        return []
+
     def _log_rag_event(self, event: str, **fields: Any) -> None:
         header = f"[RAG] {event.replace('_', ' ').title()}"
         body_lines = [f"    {key}: {value}" for key, value in fields.items() if value is not None]
         message = "\n".join([header, *body_lines])
         logger.info(message, **fields)
+
+    @staticmethod
+    def _ensure_runnable_identity(runnable: Any, prefix: str) -> None:
+        try:
+            existing_id = getattr(runnable, "id", None)
+        except Exception:  # noqa: BLE001
+            existing_id = None
+
+        if not existing_id:
+            try:
+                runnable.__dict__["id"] = f"{prefix}-{uuid4().hex}"
+            except Exception:  # noqa: BLE001
+                pass
+
+        try:
+            existing_name = getattr(runnable, "name", None)
+        except Exception:  # noqa: BLE001
+            existing_name = None
+
+        if not existing_name:
+            try:
+                runnable.__dict__["name"] = prefix
+            except Exception:  # noqa: BLE001
+                pass
 
     def _create_langchain_tool(self, tool_record: Tool, user_id: UUID):
         """Create a LangChain tool from our tool system"""

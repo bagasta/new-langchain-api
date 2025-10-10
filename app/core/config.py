@@ -42,12 +42,21 @@ class Settings(BaseSettings):
     MCP_SSE_URL: Optional[str] = Field(default=None, env="MCP_SSE_URL")
     MCP_SSE_TOKEN: Optional[str] = Field(default=None, env="MCP_SSE_TOKEN")
     MCP_SSE_ALLOWED_TOOLS: List[str] = Field(default_factory=list, env="MCP_SSE_ALLOWED_TOOLS")
+    MCP_SSE_ALLOWED_TOOL_CATEGORIES: List[str] = Field(
+        default_factory=list,
+        env="MCP_SSE_ALLOWED_TOOL_CATEGORIES",
+    )
 
     MCP_HTTP_URL: Optional[str] = Field(default=None, env="MCP_HTTP_URL")
     MCP_HTTP_TOKEN: Optional[str] = Field(default=None, env="MCP_HTTP_TOKEN")
     MCP_HTTP_ALLOWED_TOOLS: List[str] = Field(default_factory=list, env="MCP_HTTP_ALLOWED_TOOLS")
 
-    @field_validator("MCP_SSE_ALLOWED_TOOLS", "MCP_HTTP_ALLOWED_TOOLS", mode="before")
+    @field_validator(
+        "MCP_SSE_ALLOWED_TOOLS",
+        "MCP_HTTP_ALLOWED_TOOLS",
+        "MCP_SSE_ALLOWED_TOOL_CATEGORIES",
+        mode="before",
+    )
     @classmethod
     def _split_allowed_tools(cls, value):
         if value is None:

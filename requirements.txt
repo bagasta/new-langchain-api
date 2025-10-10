@@ -17,6 +17,7 @@ celery>=5.3.4
 langchain>=0.1.0
 langgraph>=0.0.53
 langchain-openai>=0.0.8
+langchain-mcp>=0.1.0
 langchain-mcp-adapters>=0.0.9
 mcp>=1.6,<1.7
 openai>=1.6.1

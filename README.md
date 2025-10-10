@@ -100,7 +100,7 @@ Agents are AI assistants that can use tools to accomplish tasks. Each agent has:
 Tools are functions that agents can use:
 - **Built-in**: Gmail, Google Sheets, Google Calendar, CSV/JSON operations
 - **Custom**: User-defined tools with JSON Schema validation
-- **External MCP HTTP/SSE**: Configure `MCP_HTTP_URL` (streamable HTTP) or `MCP_SSE_URL` (SSE) to load tools exposed by a FastMCP server and merge them into every agent execution. Provide the matching token via `MCP_HTTP_TOKEN`/`MCP_SSE_TOKEN`, and optionally restrict exposure with the corresponding `*_ALLOWED_TOOLS` list.
+- **External MCP HTTP/SSE**: Configure `MCP_HTTP_URL` (streamable HTTP) or `MCP_SSE_URL` (SSE) to load tools exposed by a FastMCP server and merge them into every agent execution. Provide the matching token via `MCP_HTTP_TOKEN`/`MCP_SSE_TOKEN`, and optionally restrict exposure with the corresponding `*_ALLOWED_TOOLS` or `MCP_SSE_ALLOWED_TOOL_CATEGORIES` lists.
 
 ### Authentication
 

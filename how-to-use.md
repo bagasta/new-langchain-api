@@ -169,9 +169,10 @@ If you have access to an already activated user account, use that email/password
   MCP_SSE_URL=http://localhost:8080
   MCP_SSE_TOKEN=your-secret-token
   MCP_SSE_ALLOWED_TOOLS=calculator,web_search
+  MCP_SSE_ALLOWED_TOOL_CATEGORIES=math
   ```
 
-  With these values in place the execution service retrieves remote tool definitions over HTTP and merges them with the agent's configured tools, falling back to SSE if available.
+  With these values in place the execution service retrieves remote tool definitions over HTTP and merges them with the agent's configured tools, falling back to SSE if available. Use `MCP_SSE_ALLOWED_TOOL_CATEGORIES` to keep the tool list scoped to specific categories such as `math`.
 
   Sanity check the connection:
 
