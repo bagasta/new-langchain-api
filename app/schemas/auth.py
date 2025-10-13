@@ -63,3 +63,10 @@ class ApiKeyResponse(BaseModel):
     token_type: str
     expires_at: datetime
     plan_code: str
+
+
+class ApiKeyUpdateRequest(BaseModel):
+    username: str
+    password: str
+    access_token: str
+    plan_code: PlanCode

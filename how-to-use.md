@@ -102,6 +102,19 @@ If you have access to an already activated user account, use that email/password
   - `PRO_M`: 30 days expiration
   - `PRO_Y`: 365 days expiration
 
+- **POST /api-key/update** (JSON body)
+  ```bash
+  curl -X POST "$BASE_URL$API_PREFIX/auth/api-key/update" \
+    -H "Content-Type: application/json" \
+    -d '{
+          "username": "user@example.com",
+          "password": "password123",
+          "access_token": "existing-api-key-token",
+          "plan_code": "PRO_M"
+        }'
+  ```
+  Extends the selected plan’s expiration for an existing key and reactivates it if it was expired. Returns `true` on success.
+
 - **POST /google/auth**
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/auth/google/auth" \

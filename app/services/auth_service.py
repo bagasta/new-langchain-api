@@ -128,6 +128,63 @@ class AuthService:
         """Get all API keys for a user"""
         return self.db.query(ApiKey).filter(ApiKey.user_id == user_id).all()
 
+    def update_api_key(
+        self,
+        email: str,
+        password: str,
+        access_token: str,
+        plan_code: PlanCode
+    ) -> bool:
+        """Update an existing API key's plan and expiration"""
+        user = self.authenticate_user(email, password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password"
+            )
+
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User account is inactive"
+            )
+
+        api_key = self.db.query(ApiKey).filter(
+            ApiKey.access_token == access_token,
+            ApiKey.user_id == user.id
+        ).first()
+
+        if not api_key:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="API key not found"
+            )
+
+        if plan_code == PlanCode.PRO_M:
+            expires_at = datetime.utcnow() + timedelta(days=30)
+        elif plan_code == PlanCode.PRO_Y:
+            expires_at = datetime.utcnow() + timedelta(days=365)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid plan code"
+            )
+
+        api_key.plan_code = plan_code.value
+        api_key.expires_at = expires_at
+        api_key.is_active = True
+
+        self.db.commit()
+
+        logger.info(
+            "API key updated successfully",
+            user_id=str(user.id),
+            api_key_id=str(api_key.id),
+            plan_code=plan_code.value
+        )
+
+        return True
+
     def deactivate_api_key(self, api_key_id: str, user_id: str) -> bool:
         """Deactivate an API key"""
         api_key = self.db.query(ApiKey).filter(

@@ -14,7 +14,15 @@ from app.services.auth_service import (
     normalize_scopes,
 )
 from app.models import User
-from app.schemas.auth import Token, GoogleAuthRequest, GoogleAuthResponse, GoogleAuthCallback, ApiKeyRequest, ApiKeyResponse
+from app.schemas.auth import (
+    Token,
+    GoogleAuthRequest,
+    GoogleAuthResponse,
+    GoogleAuthCallback,
+    ApiKeyRequest,
+    ApiKeyResponse,
+    ApiKeyUpdateRequest,
+)
 from app.core.logging import logger
 
 router = APIRouter()
@@ -275,6 +283,48 @@ async def generate_api_key(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate API key: {str(e)}"
+        )
+
+
+@router.post("/api-key/update", response_model=bool)
+async def update_api_key(
+    request: ApiKeyUpdateRequest,
+    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Update an existing API key by extending its expiration"""
+    try:
+        result = auth_service.update_api_key(
+            email=request.username,
+            password=request.password,
+            access_token=request.access_token,
+            plan_code=request.plan_code
+        )
+
+        logger.info(
+            "API key update endpoint completed successfully",
+            email=request.username,
+            plan_code=request.plan_code.value
+        )
+
+        return result
+
+    except HTTPException as exc:
+        logger.warning(
+            "API key update failed",
+            error=str(exc.detail),
+            username=request.username
+        )
+        raise exc
+    except Exception as e:
+        logger.error(
+            "API key update failed",
+            error=str(e),
+            username=request.username
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update API key: {str(e)}"
         )
 
 
