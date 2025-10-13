@@ -82,6 +82,8 @@ def get_api_key_user(
     # Check if API key is expired
     from datetime import timezone
     if api_key.expires_at < datetime.now(timezone.utc):
+        api_key.is_active = False
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="API key expired",
