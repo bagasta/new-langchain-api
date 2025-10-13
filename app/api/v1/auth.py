@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, Query, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional
@@ -22,6 +22,7 @@ from app.schemas.auth import (
     ApiKeyRequest,
     ApiKeyResponse,
     ApiKeyUpdateRequest,
+    UserPasswordUpdateRequest,
 )
 from app.core.logging import logger
 
@@ -41,18 +42,34 @@ async def auth_preflight_root() -> Response:
 
 @router.post("/login", response_model=Token)
 async def login(
-    email: str,
-    password: str,
+    password: str = Query(..., description="User password (plaintext)"),
+    email: Optional[str] = Query(
+        None, description="Email address. Optional if phone or identifier is provided."
+    ),
+    phone: Optional[str] = Query(
+        None,
+        description="Phone number (digits with optional leading +). Optional if email or identifier is provided.",
+    ),
+    identifier: Optional[str] = Query(
+        None, description="Email or phone value. Overrides email/phone if supplied."
+    ),
     db: Session = Depends(get_db),
     auth_service: AuthService = Depends(get_auth_service)
 ):
     """User login endpoint"""
     try:
-        user = auth_service.authenticate_user(email, password)
+        contact = identifier or email or phone
+        if not contact:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provide an email address or phone number."
+            )
+
+        user = auth_service.authenticate_user(contact, password)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect email or password",
+                detail="Incorrect credentials",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -80,22 +97,30 @@ async def login(
 
 @router.post("/register")
 async def register(
-    email: str,
-    password: str,
+    password: str = Query(..., description="User password (plaintext)"),
+    email: Optional[str] = Query(
+        None, description="Email address. Optional if phone or identifier is provided."
+    ),
+    phone: Optional[str] = Query(
+        None,
+        description="Phone number (digits with optional leading +). Optional if email or identifier is provided.",
+    ),
+    identifier: Optional[str] = Query(
+        None, description="Email or phone value. Overrides email/phone if supplied."
+    ),
     db: Session = Depends(get_db),
     auth_service: AuthService = Depends(get_auth_service)
 ):
     """User registration endpoint"""
     try:
-        # Check if user already exists
-        existing_user = db.query(User).filter(User.email == email).first()
-        if existing_user:
+        contact = identifier or email or phone
+        if not contact:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered"
+                detail="Provide an email address or phone number."
             )
 
-        user = auth_service.create_user(email, password)
+        user = auth_service.create_user(contact, password)
 
         logger.info("User registered successfully", user_id=str(user.id))
 
@@ -266,7 +291,7 @@ async def generate_api_key(
     """Generate API key with plan-based expiration"""
     try:
         api_key_data = auth_service.generate_api_key(
-            email=request.username,
+            identifier=request.username,
             password=request.password,
             plan_code=request.plan_code
         )
@@ -295,7 +320,7 @@ async def update_api_key(
     """Update an existing API key by extending its expiration"""
     try:
         result = auth_service.update_api_key(
-            email=request.username,
+            identifier=request.username,
             password=request.password,
             access_token=request.access_token,
             plan_code=request.plan_code
@@ -325,6 +350,44 @@ async def update_api_key(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update API key: {str(e)}"
+        )
+
+
+@router.post("/user/update-password", response_model=bool)
+async def update_user_password(
+    request: UserPasswordUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Update the authenticated user's password"""
+    if current_user.id != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot update another user's password"
+        )
+
+    try:
+        result = auth_service.update_user_password(request.user_id, request.new_password)
+
+        logger.info("User password updated", user_id=str(request.user_id))
+        return result
+
+    except HTTPException as exc:
+        logger.warning(
+            "User password update failed",
+            error=str(exc.detail),
+            user_id=str(request.user_id)
+        )
+        raise exc
+    except Exception as e:
+        logger.error(
+            "User password update failed",
+            error=str(e),
+            user_id=str(request.user_id)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update user password: {str(e)}"
         )
 
 

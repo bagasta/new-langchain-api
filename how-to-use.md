@@ -22,6 +22,7 @@ The API now uses a two-step authentication process:
 
 ```bash
 # Step 1: Register user
+# Register with email (replace with phone using identifier= or phone= query params)
 REGISTER_RESPONSE=$(curl -s -X POST "$BASE_URL$API_PREFIX/auth/register?email=newuser@example.com&password=changeme")
 USER_ID=$(echo $REGISTER_RESPONSE | jq -r '.user_id')
 echo "Registered user: $USER_ID"
@@ -81,12 +82,20 @@ If you have access to an already activated user account, use that email/password
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/auth/login?email=user@example.com&password=changeme"
   ```
+  ```bash
+  # Login with phone number (digits with optional +). identifier= takes precedence over email/phone.
+  curl -X POST "$BASE_URL$API_PREFIX/auth/login?phone=%2B628123456789&password=changeme"
+  ```
 
 - **POST /register** (query parameters)
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/auth/register?email=newuser@example.com&password=changeme"
   ```
-  Returns user information without API key. Use the API key generation endpoint to get access tokens.
+  ```bash
+  # Register with a phone number by using phone= or identifier=
+  curl -X POST "$BASE_URL$API_PREFIX/auth/register?phone=%2B628123456789&password=changeme"
+  ```
+  Returns user information without API key. Supply either `email`, `phone`, or `identifier` (email/phone string) along with the password. Phone numbers can include `+` and separators; the API normalizes them to digits only for storage. Use the API key generation endpoint to get access tokens.
 
 - **POST /api-key** (JSON body)
   ```bash
@@ -101,6 +110,18 @@ If you have access to an already activated user account, use that email/password
   Generates API key with plan-based expiration:
   - `PRO_M`: 30 days expiration
   - `PRO_Y`: 365 days expiration
+  The `username` field accepts the email address or phone number used during registration.
+  The `password` field accepts either the plaintext value or an existing bcrypt hash using prefix `$2b$12$`. Supplying the stored hash allows you to avoid sending the raw password.
+  Older accounts might still have hashes starting with `$bcrypt-sha256$`; those are also accepted.
+  ```bash
+  curl -X POST "$BASE_URL$API_PREFIX/auth/api-key" \
+    -H "Content-Type: application/json" \
+    -d '{
+          "username": "user@example.com",
+          "password": "$2b$12$3btCYb.2P1M08/CxYFKE8uQXOv.QKtOn4POSTp2aG4ZXexthBkwA6",
+          "plan_code": "PRO_M"
+        }'
+  ```
 
 - **POST /api-key/update** (JSON body)
   ```bash
@@ -113,7 +134,20 @@ If you have access to an already activated user account, use that email/password
           "plan_code": "PRO_M"
         }'
   ```
-  Extends the selected plan’s expiration for an existing key and reactivates it if it was expired. Returns `true` on success.
+  Extends the selected plan’s expiration for an existing key and reactivates it if it was expired. Returns `true` on success. A bcrypt hash with prefix `$2b$12$` can be supplied in the `password` field as an alternative to the plaintext value.
+  Hashes created before this change may use the `$bcrypt-sha256$` prefix and remain valid inputs.
+
+- **POST /user/update-password** (JSON body)
+  ```bash
+  curl -X POST "$BASE_URL$API_PREFIX/auth/user/update-password" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+          "user_id": "00000000-0000-0000-0000-000000000000",
+          "new_password": "newSecurePassword"
+        }'
+  ```
+  Updates the authenticated user’s password. The `new_password` accepts plaintext or a bcrypt hash (preferred `$2b$12$…`, legacy `$bcrypt-sha256$…` still supported).
 
 - **POST /google/auth**
   ```bash

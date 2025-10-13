@@ -1,21 +1,23 @@
+import base64
+import json
+import re
+import requests
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Sequence
-from uuid import uuid4
+from uuid import UUID, uuid4
+
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from google.oauth2 import credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
-import requests
-import json
-import base64
 
 from app.models import User, AuthToken, ApiKey
-from app.schemas.auth import TokenData, AuthTokenCreate, ApiKeyRequest, PlanCode
+from app.schemas.auth import TokenData, AuthTokenCreate, PlanCode
 from app.core.security import create_access_token, verify_password, get_password_hash
 from app.core.config import settings
 from app.core.logging import logger
-from datetime import datetime, timedelta
 
 
 def normalize_scopes(scopes: Sequence[str]) -> List[str]:
@@ -54,34 +56,92 @@ DEFAULT_GOOGLE_SCOPES: List[str] = normalize_scopes(
 
 
 class AuthService:
+    _EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    _PHONE_REGEX = re.compile(r"^\d{8,15}$")
+
+    @staticmethod
+    def _is_supported_hash(password: str) -> bool:
+        if not password:
+            return False
+        if password.startswith("$2b$12$") and len(password) == 60:
+            return True
+        if password.startswith("$bcrypt-sha256$"):
+            return True
+        return False
+
+    @classmethod
+    def _normalize_identifier(cls, raw: Optional[str]) -> Optional[str]:
+        if not raw:
+            return None
+
+        candidate = raw.strip()
+        if not candidate:
+            return None
+
+        if cls._EMAIL_REGEX.match(candidate):
+            return candidate.lower()
+
+        digits_only = re.sub(r"\D", "", candidate)
+        if digits_only and cls._PHONE_REGEX.match(digits_only):
+            return digits_only
+        return None
+
     def __init__(self, db: Session):
         self.db = db
         # expose settings so dependent components (e.g., tools) can access configuration
         self.settings = settings
 
-    def authenticate_user(self, email: str, password: str) -> Optional[User]:
-        user = self.db.query(User).filter(User.email == email).first()
+    def _get_user_by_normalized_identifier(self, normalized_identifier: str) -> Optional[User]:
+        query = self.db.query(User)
+        if "@" in normalized_identifier:
+            return query.filter(func.lower(User.email) == normalized_identifier).first()
+        return query.filter(User.email == normalized_identifier).first()
+
+    def _get_user_by_identifier(self, identifier: str) -> Optional[User]:
+        normalized = self._normalize_identifier(identifier)
+        if not normalized:
+            return None
+        return self._get_user_by_normalized_identifier(normalized)
+
+    def authenticate_user(self, identifier: str, password: str) -> Optional[User]:
+        user = self._get_user_by_identifier(identifier)
         if not user:
             return None
-        if not verify_password(password, user.password_hash):
-            return None
-        return user
+        if password == user.password_hash:
+            return user
+        if verify_password(password, user.password_hash):
+            return user
+        return None
 
-    def create_user(self, email: str, password: str) -> User:
+    def create_user(self, identifier: str, password: str) -> User:
+        normalized = self._normalize_identifier(identifier)
+        if not normalized:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provide a valid email address or phone number.",
+            )
+
+        existing_user = self._get_user_by_normalized_identifier(normalized)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Account already exists for this email address or phone number.",
+            )
+
         hashed_password = get_password_hash(password)
-        db_user = User(email=email, password_hash=hashed_password, created_at=datetime.utcnow())
+        db_user = User(email=normalized, password_hash=hashed_password, created_at=datetime.utcnow())
         self.db.add(db_user)
         self.db.commit()
         self.db.refresh(db_user)
         return db_user
 
-    def generate_api_key(self, email: str, password: str, plan_code: PlanCode) -> Dict[str, Any]:
+    def generate_api_key(self, identifier: str, password: str, plan_code: PlanCode) -> Dict[str, Any]:
         """Generate API key with plan-based expiration"""
-        user = self.authenticate_user(email, password)
+        user = self.authenticate_user(identifier, password)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password"
+                detail="Invalid credentials"
             )
 
         if not user.is_active:
@@ -128,19 +188,37 @@ class AuthService:
         """Get all API keys for a user"""
         return self.db.query(ApiKey).filter(ApiKey.user_id == user_id).all()
 
+    def update_user_password(self, user_id: UUID, new_password: str) -> bool:
+        """Update a user's password with plaintext or pre-hashed input."""
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+
+        if self._is_supported_hash(new_password):
+            user.password_hash = new_password
+        else:
+            user.password_hash = get_password_hash(new_password)
+
+        self.db.commit()
+        logger.info("User password updated successfully", user_id=str(user.id))
+        return True
+
     def update_api_key(
         self,
-        email: str,
+        identifier: str,
         password: str,
         access_token: str,
         plan_code: PlanCode
     ) -> bool:
         """Update an existing API key's plan and expiration"""
-        user = self.authenticate_user(email, password)
+        user = self.authenticate_user(identifier, password)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password"
+                detail="Invalid credentials"
             )
 
         if not user.is_active:

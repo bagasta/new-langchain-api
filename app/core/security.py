@@ -15,8 +15,13 @@ try:
 except Exception:  # pragma: no cover - defensive fallback
     bcrypt = None  # type: ignore
 
-# use bcrypt_sha256 to avoid bcrypt's 72 byte password limit and rely on sha256 pre-hash
-pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
+# Support both bcrypt (default 2b, 12 rounds) and legacy bcrypt_sha256 hashes.
+pwd_context = CryptContext(
+    schemes=["bcrypt", "bcrypt_sha256"],
+    deprecated="auto",
+    bcrypt__rounds=12,
+    bcrypt__ident="2b",
+)
 
 
 def create_access_token(

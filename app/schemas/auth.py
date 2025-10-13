@@ -2,6 +2,7 @@ from pydantic import BaseModel, validator
 from typing import Optional, List, Literal
 from datetime import datetime
 from enum import Enum
+from uuid import UUID
 
 
 class PlanCode(str, Enum):
@@ -70,3 +71,8 @@ class ApiKeyUpdateRequest(BaseModel):
     password: str
     access_token: str
     plan_code: PlanCode
+
+
+class UserPasswordUpdateRequest(BaseModel):
+    user_id: UUID
+    new_password: str
