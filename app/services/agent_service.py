@@ -102,7 +102,10 @@ class AgentService:
                 agent.name = agent_data.name
 
             if agent_data.config is not None:
-                agent.config = agent_data.config.model_dump()
+                existing_config = dict(agent.config or {})
+                updates = agent_data.config.model_dump(exclude_unset=True, exclude_none=True)
+                existing_config.update(updates)
+                agent.config = existing_config
 
             if agent_data.status is not None:
                 agent.status = agent_data.status

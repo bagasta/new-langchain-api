@@ -205,6 +205,22 @@ If you have access to an already activated user account, use that email/password
   ```
   Include Google tools only if you have already linked the relevant account, otherwise the response will return `auth_required: true` and an OAuth URL.
 
+- **PUT /{agent_id}** update agent details
+  ```bash
+  curl -X PUT "$BASE_URL$API_PREFIX/agents/$AGENT_ID" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+          "name": "Research Assistant v2",
+          "config": {
+            "system_prompt": "Keep conversations concise and always cite sources."
+          },
+          "allowed_tools": ["web_search", "calculator"],
+          "tools": ["web_search", "calculator"]
+        }'
+  ```
+  All fields are optional—omit anything you do not want to change. Providing only `config.system_prompt` updates the system message without resetting other LLM settings. `allowed_tools` controls which MCP/remote tools an agent may call at runtime, while `tools` updates the core LangChain tool list.
+
   If you want every agent to access tools hosted on your FastMCP server, declare the following environment variables before starting the API (see `mcp-server.md`). Streamable HTTP is preferred, with SSE as an optional fallback:
 
   ```

@@ -12,6 +12,17 @@ class AgentConfig(BaseModel):
     memory_type: str = Field(default="buffer")
     reasoning_strategy: str = Field(default="react")
     system_prompt: Optional[str] = Field(default=None)
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentConfigUpdate(BaseModel):
+    llm_model: Optional[str] = None
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    max_tokens: Optional[int] = Field(default=None, gt=0)
+    memory_type: Optional[str] = None
+    reasoning_strategy: Optional[str] = None
+    system_prompt: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
 
 
 class MCPServerConfig(BaseModel):
@@ -82,7 +93,7 @@ class AgentCreate(BaseModel):
 class AgentUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     tools: Optional[List[str]] = None
-    config: Optional[AgentConfig] = None
+    config: Optional[AgentConfigUpdate] = None
     status: Optional[AgentStatus] = None
     mcp_servers: Optional[Dict[str, MCPServerConfig]] = None
     allowed_tools: Optional[List[str]] = None
