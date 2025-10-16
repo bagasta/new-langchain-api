@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = Field(..., env="OPENAI_API_KEY")
 
     # CORS
-    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000", "https://unprized-loriann-ceaselessly.ngrok-free.dev/"]
 
     # Logging
     LOG_LEVEL: str = "INFO"
