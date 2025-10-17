@@ -175,7 +175,18 @@ Agents (N) ←→ (N) Tools (through AgentTools)
 #### User Registration & Login
 - `POST /register` - Create new user account
 - `POST /login` - Authenticate user and return JWT token
-- `GET /me` - Get current user profile
+- `GET /me` - Get current user profile; response also echoes the bearer `access_token` used for the request so clients can confirm which credential is active.
+
+Example response:
+```json
+{
+  "id": "0a1b2c3d-....",
+  "email": "user@example.com",
+  "is_active": true,
+  "created_at": "2024-06-03T11:22:33.123456",
+  "access_token": "eyJ..."
+}
+```
 
 #### Google OAuth Integration
 - `GET /google/authorize` - Initiate Google OAuth flow

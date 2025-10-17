@@ -43,11 +43,19 @@ API_KEY_RESPONSE=$(curl -s -X POST "$BASE_URL$API_PREFIX/auth/api-key" \
 if echo "$API_KEY_RESPONSE" | jq -e '.access_token' > /dev/null 2>&1; then
     TOKEN=$(echo $API_KEY_RESPONSE | jq -r '.access_token')
     EXPIRES_AT=$(echo $API_KEY_RESPONSE | jq -r '.expires_at')
-   echo "Generated API key expires at: $EXPIRES_AT"
+    echo "Generated API key expires at: $EXPIRES_AT"
 
     # Use the token for authenticated requests
     curl -H "Authorization: Bearer $TOKEN" "$BASE_URL$API_PREFIX/auth/me"
     # Response includes user profile fields and echoes the same access token.
+    # Example:
+    # {
+    #   "id": "0a1b2c3d-....",
+    #   "email": "newuser@example.com",
+    #   "is_active": true,
+    #   "created_at": "2024-06-03T11:22:33.123456",
+    #   "access_token": "..."  # Matches $TOKEN
+    # }
 else
     echo "API key generation failed: $API_KEY_RESPONSE"
     echo "User account might not be activated yet. Contact administrator."
@@ -177,7 +185,7 @@ If you have access to an already activated user account, use that email/password
   curl "$BASE_URL$API_PREFIX/auth/me" \
     -H "Authorization: Bearer $TOKEN"
   ```
-  Returns user metadata along with the JWT access token that was supplied in the request.
+  Returns user metadata along with the JWT access token that was supplied in the request. This makes it easy to confirm which key or login session you're currently using.
 
 - **GET /tokens**
   ```bash
@@ -501,6 +509,7 @@ To check when your key expires:
 curl "$BASE_URL$API_PREFIX/auth/me" \
   -H "Authorization: Bearer $TOKEN"
 ```
+Review the `access_token` field in the response to double-check that you are inspecting the expected key.
 
 To generate a new key:
 ```bash
