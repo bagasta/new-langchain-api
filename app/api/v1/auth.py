@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Query, status
 from fastapi.responses import RedirectResponse
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional
 from uuid import UUID
@@ -7,7 +8,7 @@ import base64
 import json
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, get_auth_service
+from app.core.deps import get_current_user, get_auth_service, security
 from app.services.auth_service import (
     AuthService,
     DEFAULT_GOOGLE_SCOPES,
@@ -272,13 +273,17 @@ async def google_callback(
 
 
 @router.get("/me")
-async def get_current_user_info(current_user: User = Depends(get_current_user)):
+async def get_current_user_info(
+    current_user: User = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
     """Get current user information"""
     return {
         "id": str(current_user.id),
         "email": current_user.email,
         "is_active": current_user.is_active,
-        "created_at": current_user.created_at
+        "created_at": current_user.created_at,
+        "access_token": credentials.credentials
     }
 
 

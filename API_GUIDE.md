@@ -28,6 +28,7 @@ Include the token in the Authorization header:
 curl -X GET "http://localhost:8000/api/v1/auth/me" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
+Returns the authenticated user's profile details and echoes the provided `access_token`.
 
 ## Agent Management
 

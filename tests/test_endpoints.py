@@ -67,6 +67,7 @@ def test_register_and_login_flow(client):
     me_resp = client.get(f"{API_PREFIX}/auth/me", headers=headers_m)
     assert me_resp.status_code == 200
     assert me_resp.json()["email"] == creds["email"].lower()
+    assert me_resp.json()["access_token"] == api_key_m
 
     # Test API key generation with PRO_Y plan
     api_key_y = _generate_api_key(client, creds["email"], creds["password"], "PRO_Y")
@@ -75,6 +76,7 @@ def test_register_and_login_flow(client):
     me_resp_y = client.get(f"{API_PREFIX}/auth/me", headers=headers_y)
     assert me_resp_y.status_code == 200
     assert me_resp_y.json()["email"] == creds["email"].lower()
+    assert me_resp_y.json()["access_token"] == api_key_y
 
 
 def test_google_auth_endpoints(client, monkeypatch):
