@@ -6,7 +6,24 @@ from uuid import UUID
 from app.models import Tool, ToolType
 from app.schemas.tool import ToolCreate, ToolUpdate, ToolExecuteRequest
 from app.tools.base import BaseTool
-from app.tools.google_tools import GmailTool, GoogleSheetsTool, GoogleCalendarTool
+from app.tools.google_tools import (
+    GmailTool,
+    GmailGetMessageTool,
+    GmailReadMessagesTool,
+    GmailListMessagesTool,
+    GmailSendMessageTool,
+    GmailCreateDraftTool,
+    GmailGetThreadTool,
+    GoogleSheetsTool,
+    GoogleSheetsReadTool,
+    GoogleSheetsWriteTool,
+    GoogleSheetsCreateSpreadsheetTool,
+    GoogleCalendarTool,
+    GoogleCalendarListEventsTool,
+    GoogleCalendarCreateEventTool,
+    GoogleCalendarGetEventTool,
+    GOOGLE_TOOL_SCOPE_MAP,
+)
 from app.tools.file_tools import CSVTool, JSONTool, FileListTool
 from app.core.logging import logger
 
@@ -20,8 +37,20 @@ class ToolService:
         """Initialize built-in tools in the database"""
         builtin_tools = [
             GmailTool(),
+            GmailGetMessageTool(),
+            GmailReadMessagesTool(),
+            GmailListMessagesTool(),
+            GmailSendMessageTool(),
+            GmailCreateDraftTool(),
+            GmailGetThreadTool(),
             GoogleSheetsTool(),
+            GoogleSheetsReadTool(),
+            GoogleSheetsWriteTool(),
+            GoogleSheetsCreateSpreadsheetTool(),
             GoogleCalendarTool(),
+            GoogleCalendarListEventsTool(),
+            GoogleCalendarCreateEventTool(),
+            GoogleCalendarGetEventTool(),
             CSVTool(),
             JSONTool(),
             FileListTool(),
@@ -187,8 +216,20 @@ class ToolService:
         """Get tool instance by name"""
         tool_map = {
             "gmail": GmailTool,
+            "gmail_get_message": GmailGetMessageTool,
+            "gmail_read_messages": GmailReadMessagesTool,
+            "gmail_list_messages": GmailListMessagesTool,
+            "gmail_send_message": GmailSendMessageTool,
+            "gmail_create_draft": GmailCreateDraftTool,
+            "gmail_get_thread": GmailGetThreadTool,
             "google_sheets": GoogleSheetsTool,
+            "google_sheets_get_values": GoogleSheetsReadTool,
+            "google_sheets_update_values": GoogleSheetsWriteTool,
+            "google_sheets_create_spreadsheet": GoogleSheetsCreateSpreadsheetTool,
             "google_calendar": GoogleCalendarTool,
+            "google_calendar_list_events": GoogleCalendarListEventsTool,
+            "google_calendar_create_event": GoogleCalendarCreateEventTool,
+            "google_calendar_get_event": GoogleCalendarGetEventTool,
             "csv": CSVTool,
             "json": JSONTool,
             "file_list": FileListTool
@@ -227,7 +268,7 @@ class ToolService:
         try:
             if tool_instance:
                 # For Google tools, we need to pass auth service
-                if tool_record.name in ["gmail", "google_sheets", "google_calendar"]:
+                if tool_record.name in GOOGLE_TOOL_SCOPE_MAP:
                     from app.services.auth_service import AuthService
 
                     auth_service = AuthService(self.db)
@@ -301,23 +342,10 @@ class ToolService:
 
     def get_required_scopes(self, tool_names: List[str]) -> List[str]:
         """Get required OAuth scopes for given tools"""
-        scope_mapping = {
-            "gmail": [
-                "https://www.googleapis.com/auth/gmail.readonly",
-                "https://www.googleapis.com/auth/gmail.compose"
-            ],
-            "google_sheets": [
-                "https://www.googleapis.com/auth/spreadsheets.readonly",
-                "https://www.googleapis.com/auth/spreadsheets"
-            ],
-            "google_calendar": [
-                "https://www.googleapis.com/auth/calendar"
-            ]
-        }
-
         scopes = set()
         for tool_name in tool_names:
-            if tool_name in scope_mapping:
-                scopes.update(scope_mapping[tool_name])
+            tool_scopes = GOOGLE_TOOL_SCOPE_MAP.get(tool_name)
+            if tool_scopes:
+                scopes.update(tool_scopes)
 
-        return list(scopes)
+        return sorted(scopes)

@@ -10,11 +10,13 @@ from app.core.deps import (
     get_execution_service,
     get_auth_service,
     get_embedding_service,
+    get_tool_service,
 )
 from app.services.agent_service import AgentService
 from app.services.execution_service import ExecutionService
 from app.services.embedding_service import EmbeddingService
 from app.services.auth_service import AuthService, DEFAULT_GOOGLE_SCOPES
+from app.services.tool_service import ToolService
 from app.models import User, ExecutionStatus
 from app.schemas.agent import (
     AgentCreate,
@@ -34,6 +36,7 @@ async def create_agent(
     agent_data: AgentCreate,
     current_user: User = Depends(get_api_key_user),
     agent_service: AgentService = Depends(get_agent_service),
+    tool_service: ToolService = Depends(get_tool_service),
     auth_service: AuthService = Depends(get_auth_service)
 ):
     """Create a new agent"""
@@ -41,8 +44,9 @@ async def create_agent(
         agent = agent_service.create_agent(current_user.id, agent_data)
         logger.info("Agent created", agent_id=str(agent.id), user_id=str(current_user.id))
 
-        google_tools = {"gmail", "google_sheets", "google_calendar"}
-        requires_google_auth = bool(set(agent_data.tools or []) & google_tools)
+        selected_tools = agent_data.tools or []
+        required_scopes = tool_service.get_required_scopes(selected_tools)
+        requires_google_auth = bool(required_scopes)
 
         auth_required = False
         auth_url = None
@@ -50,10 +54,19 @@ async def create_agent(
 
         if requires_google_auth:
             tokens = auth_service.get_user_auth_tokens(str(current_user.id))
-            has_google = any(token.service == "google" for token in tokens)
+            required_scope_set = set(required_scopes)
+            has_google = False
+            for token in tokens:
+                if token.service != "google":
+                    continue
+                token_scopes = set(token.scope or [])
+                if required_scope_set.issubset(token_scopes):
+                    has_google = True
+                    break
+
             if not has_google:
                 auth_data = auth_service.create_google_auth_url(
-                    str(current_user.id), DEFAULT_GOOGLE_SCOPES
+                    str(current_user.id), required_scopes or DEFAULT_GOOGLE_SCOPES
                 )
                 auth_required = True
                 auth_url = auth_data.get("auth_url")

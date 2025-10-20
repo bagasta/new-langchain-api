@@ -95,6 +95,7 @@ If you have access to an already activated user account, use that email/password
   # Login with phone number (digits with optional +). identifier= takes precedence over email/phone.
   curl -X POST "$BASE_URL$API_PREFIX/auth/login?phone=%2B628123456789&password=changeme"
   ```
+  The `password` query parameter accepts either a plaintext password or the stored bcrypt hash (prefix `$2b$12$` or legacy `$bcrypt-sha256$`). Passing the hash lets you authenticate without exposing the raw password when scripting.
 
 - **POST /register** (query parameters)
   ```bash
@@ -186,12 +187,6 @@ If you have access to an already activated user account, use that email/password
     -H "Authorization: Bearer $TOKEN"
   ```
   Returns user metadata along with the JWT access token that was supplied in the request. This makes it easy to confirm which key or login session you're currently using.
-
-- **GET /tokens**
-  ```bash
-  curl "$BASE_URL$API_PREFIX/auth/tokens" \
-    -H "Authorization: Bearer $TOKEN"
-  ```
 
 ## Agent Routes (`$API_PREFIX/agents`)
 
@@ -304,7 +299,7 @@ If you have access to an already activated user account, use that email/password
     -H "Content-Type: application/json" \
     -d '{
           "name": "Updated Agent Name",
-          "status": "ACTIVE"
+          "status": "active"
         }'
   ```
 
@@ -347,7 +342,7 @@ If you have access to an already activated user account, use that email/password
 
 - **GET /** list tools (optional `tool_type`)
   ```bash
-  curl "$BASE_URL$API_PREFIX/tools?tool_type=CUSTOM" \
+  curl "$BASE_URL$API_PREFIX/tools?tool_type=custom" \
     -H "Authorization: Bearer $TOKEN"
   ```
 
@@ -367,7 +362,7 @@ If you have access to an already activated user account, use that email/password
             },
             "required": ["query"]
           },
-          "type": "CUSTOM"
+          "type": "custom"
         }'
   ```
 
@@ -409,11 +404,13 @@ If you have access to an already activated user account, use that email/password
     -d '{
           "tool_id": "TOOL_ID",
           "parameters": {
-            "query": "latest unread",
-            "max_results": 10
+            "directory": "/data/reports",
+            "pattern": "*.csv",
+            "recursive": true
           }
         }'
   ```
+  The execution payload is routed to the registered tool. Built-in tools include file utilities (`csv`, `json`, `file_list`) in addition to Google Workspace integrations.
 
 ## Document Ingestion (`$API_PREFIX/agents/{agent_id}/documents`)
 

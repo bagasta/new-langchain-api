@@ -5,12 +5,13 @@
 This project is a scalable **LangChain Agent API** built with FastAPI that enables creating and managing AI agents with dynamic tool integration. The API provides a comprehensive platform for building AI-powered agents with support for various tools including Google services, document processing, and custom integrations.
 
 ### Key Features
-- **Multi-layer Authentication**: JWT users + API keys with plan-based expiration
-- **Agent Management**: Create, configure, and manage LangChain-based AI agents
-- **Dynamic Tool Integration**: Built-in tools plus custom tool registration
-- **RAG Support**: Document upload and pgvector-based retrieval
-- **OAuth Integration**: Google OAuth with dynamic scope generation
-- **Asynchronous Execution**: Background agent execution with session-scoped memory
+- **Multi-layer Authentication**: JWT sessions plus plan-based API keys with hashed password support and inactive-user safeguards
+- **Agent Management**: Create, configure, and manage LangChain-based AI agents with session-aware execution tracking
+- **Dynamic Tool Integration**: Built-in tools, custom registrations, and Model Context Protocol (MCP) remote tool federation
+- **File & Workspace Tools**: CSV/JSON/file-list helpers alongside Google Workspace integrations
+- **RAG Support**: Document upload pipeline with pgvector-backed retrieval
+- **OAuth Integration**: Google OAuth with automatic scope reconciliation
+- **Asynchronous Execution**: Background agent execution with session-scoped memory and telemetry
 - **Vector Database**: PostgreSQL with pgvector for embeddings
 
 ## Architecture
@@ -22,6 +23,7 @@ This project is a scalable **LangChain Agent API** built with FastAPI that enabl
 - **ORM**: SQLAlchemy 2.0 (async)
 - **Authentication**: JWT + OAuth2 (Google)
 - **AI Framework**: LangChain + LangGraph
+- **Tool Federation**: Model Context Protocol (MCP) HTTP/SSE transports
 - **Containerization**: Docker & Docker Compose
 - **Proxy**: Nginx (reverse proxy)
 
@@ -39,7 +41,8 @@ This project is a scalable **LangChain Agent API** built with FastAPI that enabl
 │   │   ├── config.py           # Application configuration
 │   │   ├── database.py         # Database connection and setup
 │   │   ├── deps.py             # Dependency injection
-│   │   └── logging.py          # Logging configuration
+│   │   ├── logging.py          # Logging configuration
+│   │   └── mcp_config.py       # MCP transport and tool filtering helpers
 │   ├── models/
 │   │   ├── user.py             # User model
 │   │   ├── agent.py            # Agent model
@@ -50,6 +53,7 @@ This project is a scalable **LangChain Agent API** built with FastAPI that enabl
 │   ├── services/
 │   │   ├── auth_service.py     # Authentication business logic
 │   │   ├── execution_service.py # Agent execution logic
+│   │   ├── embedding_service.py # Document ingestion and embeddings
 │   │   └── tool_service.py     # Tool management logic
 │   └── tools/                  # Built-in tool implementations
 ├── alembic/                    # Database migrations
@@ -173,9 +177,9 @@ Agents (N) ←→ (N) Tools (through AgentTools)
 ### Authentication Endpoints (`/api/v1/auth`)
 
 #### User Registration & Login
-- `POST /register` - Create new user account
-- `POST /login` - Authenticate user and return JWT token
-- `GET /me` - Get current user profile; response also echoes the bearer `access_token` used for the request so clients can confirm which credential is active.
+- `POST /register` - Supply `email`, `phone`, or `identifier` via query parameters along with `password` to create a user. Accounts are created in an inactive state so they can be reviewed before API access is granted.
+- `POST /login` - Authenticate with query parameters (`email`, `phone`, or `identifier`) and `password`. The password parameter accepts either plaintext or the stored bcrypt hash (prefix `$2b$12$` or legacy `$bcrypt-sha256$`) so automation can authenticate without exposing raw passwords.
+- `GET /me` - Return the current user profile; the response echoes the bearer `access_token` that was supplied in the request so clients can confirm which credential is active.
 
 Example response:
 ```json
@@ -189,14 +193,14 @@ Example response:
 ```
 
 #### Google OAuth Integration
-- `GET /google/authorize` - Initiate Google OAuth flow
-- `GET /google/callback` - Handle OAuth callback
-- `DELETE /google/revoke` - Revoke Google access
+- `POST /google/auth` - Initiate Google OAuth flow and return `auth_url` + `state` (no request body required)
+- `GET /google/auth` - Alternate method for initiating the OAuth flow (handy for browser redirects)
+- `GET /google/callback` - Handle the OAuth callback; reconciles Google scope changes automatically
 
 #### API Key Management
-- `POST /api-keys` - Generate new API key
-- `GET /api-keys` - List user's API keys
-- `DELETE /api-keys/{key_id}` - Revoke API key
+- `POST /api-key` - Generate a new plan-based API key; request body includes `username`, `password`, and `plan_code` (`PRO_M` 30 days, `PRO_Y` 365 days)
+- `POST /api-key/update` - Extend or reactivate an existing key by providing `username`, `password`, `plan_code`, and the current `access_token`
+- `POST /user/update-password` - Rotate a user's password using plaintext or a supported bcrypt hash
 
 ### Agent Management (`/api/v1/agents`)
 
@@ -208,19 +212,23 @@ Example response:
 - `DELETE /{agent_id}` - Delete agent
 
 #### Agent Execution
-- `POST /{agent_id}/execute` - Execute agent with input
-- `GET /{agent_id}/executions` - List execution history
+- `POST /{agent_id}/execute` - Execute agent with input; optional `parameters` dictionary and `session_id` allow fine-grained control over runs
+- `GET /{agent_id}/executions` - List execution history for the agent
 - `GET /{agent_id}/executions/{execution_id}` - Get execution details
-- `POST /{agent_id}/upload` - Upload documents for RAG
+- `GET /executions/stats` - Aggregate execution statistics for the authenticated user
+- `POST /{agent_id}/documents` - Upload documents for retrieval-augmented generation (RAG) with chunking controls (`chunk_size`, `chunk_overlap`, `batch_size`)
 
 ### Tool Management (`/api/v1/tools`)
 
 #### Tool Registry
-- `GET /` - List available tools
+- `GET /` - List available tools (optional `tool_type` filter accepts `builtin` or `custom`)
 - `GET /{tool_id}` - Get tool details and schema
 - `POST /` - Register custom tool
 - `PUT /{tool_id}` - Update tool configuration
 - `DELETE /{tool_id}` - Remove tool
+- `POST /execute` - Execute a tool directly by ID with JSON parameters
+- `GET /schemas/{tool_name}` - Retrieve the JSON schema for a known tool by name
+- `GET /scopes/required?tools=...` - Determine the OAuth scopes required for Google Workspace tools
 
 ## Setup Requirements
 
@@ -241,13 +249,14 @@ REDIS_URL=redis://localhost:6379/0
 # Security
 SECRET_KEY=your-secret-key-here-change-in-production
 ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
+ACCESS_TOKEN_EXPIRE_MINUTES=43200  # 30 days
 
 # Application
 PROJECT_NAME=LangChain Agent API
 API_V1_STR=/api/v1
 DEBUG=false
 LOG_LEVEL=INFO
+LOG_FORMAT=json
 ```
 
 #### OAuth Configuration
@@ -265,7 +274,7 @@ GOOGLE_SCOPES=https://www.googleapis.com/auth/gmail.readonly,https://www.googlea
 ```bash
 # OpenAI
 OPENAI_API_KEY=your-openai-api-key
-OPENAI_MODEL=gpt-4-turbo-preview
+# Agent-level configs default to gpt-4o-mini; override per agent via config.llm_model
 
 # Optional: Other AI providers
 ANTHROPIC_API_KEY=your-anthropic-key
@@ -274,8 +283,20 @@ ANTHROPIC_API_KEY=your-anthropic-key
 #### CORS Configuration
 ```bash
 # Comma-separated list of allowed origins
-BACKEND_CORS_ORIGINS=http://localhost:3000,https://yourdomain.com
+BACKEND_CORS_ORIGINS=["http://localhost:3000","https://yourdomain.com"]
+
+# MCP (Model Context Protocol) remote tool federation
+MCP_HTTP_URL=http://localhost:8080/mcp/stream
+MCP_HTTP_TOKEN=your-mcp-token
+MCP_HTTP_ALLOWED_TOOLS=calculator,web_search,pdf_generate
+
+MCP_SSE_URL=http://localhost:8080
+MCP_SSE_TOKEN=your-mcp-token
+MCP_SSE_ALLOWED_TOOLS=calculator,web_search
+MCP_SSE_ALLOWED_TOOL_CATEGORIES=math,files
 ```
+
+Values for `BACKEND_CORS_ORIGINS`, `MCP_HTTP_ALLOWED_TOOLS`, and related lists can be provided as comma-separated strings or JSON arrays. The configuration layer normalizes either format into Python lists.
 
 ### Installation Steps
 
@@ -331,44 +352,39 @@ docker-compose up -d
 
 #### 1. User Registration
 ```bash
-curl -X POST "http://localhost:8000/api/v1/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "securepassword"
-  }'
+curl -X POST "http://localhost:8000/api/v1/auth/register?email=user@example.com&password=securepassword"
 ```
 
 #### 2. Login and Get JWT Token
 ```bash
-curl -X POST "http://localhost:8000/api/v1/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "securepassword"
-  }'
+LOGIN_RESPONSE=$(curl -s -X POST "http://localhost:8000/api/v1/auth/login?email=user@example.com&password=securepassword")
+TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r '.access_token')
+echo "Session token: $TOKEN"
 ```
+`jq` is used here to extract JSON fields; substitute your preferred JSON parser if needed.
 
 #### 3. Generate API Key
 ```bash
-curl -X POST "http://localhost:8000/api/v1/auth/api-keys" \
-  -H "Authorization: Bearer <jwt-token>" \
+curl -X POST "http://localhost:8000/api/v1/auth/api-key" \
   -H "Content-Type: application/json" \
   -d '{
+    "username": "user@example.com",
+    "password": "securepassword",
     "plan_code": "PRO_M"
   }'
 ```
+The request body accepts the user's plaintext password or the stored bcrypt hash. Successful responses return an `access_token` you can use as the bearer credential for agent and tool routes.
 
 #### 4. Create Agent
 ```bash
 curl -X POST "http://localhost:8000/api/v1/agents" \
-  -H "Authorization: Bearer <api-key>" \
+  -H "Authorization: Bearer <api-key-access-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Email Assistant",
     "config": {
-      "model": "gpt-4-turbo-preview",
-      "system_message": "You are a helpful email assistant.",
+      "llm_model": "gpt-4o-mini",
+      "system_prompt": "You are a helpful email assistant.",
       "temperature": 0.7
     },
     "allowed_tools": ["gmail", "calendar"],
@@ -379,7 +395,7 @@ curl -X POST "http://localhost:8000/api/v1/agents" \
 #### 5. Execute Agent
 ```bash
 curl -X POST "http://localhost:8000/api/v1/agents/{agent_id}/execute" \
-  -H "Authorization: Bearer <api-key>" \
+  -H "Authorization: Bearer <api-key-access-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "input": "Check my recent emails",
@@ -401,10 +417,16 @@ curl -X POST "http://localhost:8000/api/v1/agents/{agent_id}/execute" \
 - **Excel Reader**: Process .xlsx files
 - **PowerPoint Reader**: Extract from .pptx files
 
+### File Utilities
+- **CSV Tool**: Read and write CSV data with configurable delimiter and encoding
+- **JSON Tool**: Read and write JSON files with customizable indentation
+- **File List Tool**: List files within a directory (supports glob patterns and recursive walks)
+
 ### Custom Tools
 - **Web Search**: Internet search capabilities
 - **Calculator**: Mathematical computations
 - **Text Processing**: String manipulation and analysis
+- **MCP Remote Tools**: Any tools exposed by an MCP server configured through `MCP_HTTP_*` or `MCP_SSE_*` environment variables are merged into the agent's runtime toolset.
 
 ## Development Guidelines
 
