@@ -5,6 +5,7 @@ from .tool import Tool, ToolType, AgentTool
 from .auth import AuthToken, ApiKey
 from .execution import Execution, ExecutionStatus
 from .embedding import Embedding
+from .agent_upload import AgentUpload
 
 __all__ = [
     "Base",
@@ -19,4 +20,5 @@ __all__ = [
     "Execution",
     "ExecutionStatus",
     "Embedding",
+    "AgentUpload",
 ]

@@ -173,3 +173,25 @@ class AgentCreateResponse(AgentResponse):
     auth_required: bool = False
     auth_url: Optional[str] = None
     auth_state: Optional[str] = None
+
+
+class AgentUploadRecord(BaseModel):
+    id: UUID
+    agent_id: UUID
+    user_id: Optional[UUID] = None
+    filename: str
+    content_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    chunk_count: int
+    embedding_ids: List[UUID] = Field(default_factory=list)
+    details: Dict[str, Any] = Field(default_factory=dict)
+    is_deleted: bool
+    deleted_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AgentUploadListResponse(BaseModel):
+    uploads: List[AgentUploadRecord]

@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'remove_api_key_simple'
-down_revision = 'add_api_key_to_users'
+down_revision = '6ee1a8575943'
 branch_labels = None
 depends_on = None
 

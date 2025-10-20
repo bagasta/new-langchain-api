@@ -14,6 +14,13 @@ class Embedding(Base):
     content = Column(Text, nullable=False)
     embedding = Column(Vector(1536), nullable=False)  # OpenAI embedding size
     metadata_json = Column("metadata", JSONB)
+    upload_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_uploads.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Relationships
     agent = relationship("Agent", back_populates="embeddings")
+    upload = relationship("AgentUpload", back_populates="embeddings")

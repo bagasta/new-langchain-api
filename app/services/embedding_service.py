@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from langchain_openai import OpenAIEmbeddings
 
 from app.core.config import settings
-from app.models import Agent, Embedding
+from app.models import Agent, Embedding, AgentUpload
 from app.core.logging import logger
 
 
@@ -34,6 +34,7 @@ class EmbeddingService:
         chunk_size: Optional[int] = None,
         chunk_overlap: Optional[int] = None,
         batch_size: Optional[int] = None,
+        uploaded_by: Optional[UUID] = None,
     ) -> Dict[str, Any]:
         extension = self._determine_extension(filename, content_type)
         text = self._extract_text(extension, data, filename)
@@ -74,8 +75,27 @@ class EmbeddingService:
 
         vectors = self._embed_in_batches(chunks, batch_size_val)
 
-        records: List[Embedding] = []
         total_chunks = len(chunks)
+
+        upload = AgentUpload(
+            agent_id=agent.id,
+            user_id=uploaded_by,
+            filename=filename,
+            content_type=content_type,
+            size_bytes=len(data) if data is not None else None,
+            chunk_count=total_chunks,
+            details={
+                "chunk_size": chunk_size_val,
+                "chunk_overlap": overlap_val,
+                "batch_size": batch_size_val,
+                "characters": char_count,
+                "adjusted": adjusted,
+            },
+        )
+        self.db.add(upload)
+        self.db.flush()
+
+        records: List[Embedding] = []
         for index, (chunk, vector) in enumerate(zip(chunks, vectors)):
             metadata = {
                 "source": filename,
@@ -88,21 +108,26 @@ class EmbeddingService:
                 content=chunk,
                 embedding=vector,
                 metadata_json=metadata,
+                upload_id=upload.id,
             )
             self.db.add(record)
             records.append(record)
 
         self.db.flush()
-        ids = [str(record.id) for record in records]
+
+        embedding_ids = [record.id for record in records]
+        upload.embedding_ids = embedding_ids
+
         self.db.commit()
 
         return {
             "chunks": total_chunks,
-            "embedding_ids": ids,
+            "embedding_ids": [str(record_id) for record_id in embedding_ids],
             "chunk_size": chunk_size_val,
             "chunk_overlap": overlap_val,
             "batch_size": batch_size_val,
             "characters": char_count,
+            "upload_id": str(upload.id),
         }
 
     def _determine_extension(self, filename: str, content_type: Optional[str]) -> str:

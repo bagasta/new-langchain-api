@@ -38,3 +38,4 @@ class Agent(Base):
     tools = relationship("AgentTool", back_populates="agent", passive_deletes=True)
     executions = relationship("Execution", back_populates="agent", passive_deletes=True)
     embeddings = relationship("Embedding", back_populates="agent")
+    uploads = relationship("AgentUpload", back_populates="agent", passive_deletes=True)

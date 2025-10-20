@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status, UploadF
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime, timezone
 
 from app.core.database import get_db
 from app.core.deps import (
@@ -11,12 +12,14 @@ from app.core.deps import (
     get_auth_service,
     get_embedding_service,
     get_tool_service,
+    get_upload_service,
 )
 from app.services.agent_service import AgentService
 from app.services.execution_service import ExecutionService
 from app.services.embedding_service import EmbeddingService
 from app.services.auth_service import AuthService, DEFAULT_GOOGLE_SCOPES
 from app.services.tool_service import ToolService
+from app.services.upload_service import UploadService
 from app.models import User, ExecutionStatus
 from app.schemas.agent import (
     AgentCreate,
@@ -25,6 +28,8 @@ from app.schemas.agent import (
     AgentExecuteRequest,
     AgentExecuteResponse,
     AgentCreateResponse,
+    AgentUploadRecord,
+    AgentUploadListResponse,
 )
 from app.core.logging import logger
 
@@ -203,6 +208,7 @@ async def upload_agent_document(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             batch_size=batch_size,
+            uploaded_by=current_user.id,
         )
     except HTTPException:
         raise
@@ -234,7 +240,60 @@ async def upload_agent_document(
         "message": "Document processed and embeddings stored.",
         "chunks": result.get("chunks"),
         "embedding_ids": result.get("embedding_ids"),
+        "upload_id": result.get("upload_id"),
     }
+
+
+@router.get("/{agent_id}/documents", response_model=AgentUploadListResponse)
+async def list_agent_documents(
+    agent_id: UUID,
+    current_user: User = Depends(get_api_key_user),
+    agent_service: AgentService = Depends(get_agent_service),
+    upload_service: UploadService = Depends(get_upload_service),
+):
+    """List uploaded documents for an agent."""
+    agent_service.get_agent(agent_id, current_user.id)
+    uploads = upload_service.list_uploads(agent_id, current_user.id)
+    return AgentUploadListResponse(
+        uploads=[
+            AgentUploadRecord.model_validate(upload, from_attributes=True)
+            for upload in uploads
+        ]
+    )
+
+
+@router.delete(
+    "/{agent_id}/documents/{upload_id}",
+    response_model=AgentUploadRecord,
+    status_code=status.HTTP_200_OK,
+)
+async def delete_agent_document(
+    agent_id: UUID,
+    upload_id: UUID,
+    current_user: User = Depends(get_api_key_user),
+    agent_service: AgentService = Depends(get_agent_service),
+    upload_service: UploadService = Depends(get_upload_service),
+):
+    """Delete previously uploaded document and associated embeddings."""
+    agent_service.get_agent(agent_id, current_user.id)
+
+    upload = upload_service.get_upload(upload_id, agent_id, current_user.id)
+    if not upload:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Upload not found",
+        )
+
+    upload_record = AgentUploadRecord.model_validate(upload, from_attributes=True)
+    upload_record = upload_record.model_copy(
+        update={
+            "is_deleted": True,
+            "deleted_at": datetime.now(timezone.utc),
+        }
+    )
+
+    upload_service.delete_upload(upload)
+    return upload_record
 
 
 @router.post("/{agent_id}/execute", response_model=AgentExecuteResponse)

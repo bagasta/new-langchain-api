@@ -425,7 +425,73 @@ curl -X POST "$BASE_URL$API_PREFIX/agents/$AGENT_ID/documents" \
   -F "batch_size=50"
 ```
 
-The API converts the file to plain text, removes noisy characters, chunks the content, embeds each chunk with OpenAI, and stores the vectors in the `embeddings` table.
+Successful uploads return chunk statistics, embedding ids, and a unique `upload_id`:
+
+```json
+{
+  "message": "Document processed and embeddings stored.",
+  "chunks": 18,
+  "embedding_ids": [
+    "d5e9d4f6-4f2d-4a3b-861a-6b5430a96a16",
+    "..."
+  ],
+  "upload_id": "80b6ed2c-2d5d-4235-9e9f-9f9c1545b203"
+}
+```
+
+### List Uploaded Files
+
+Every ingestion is logged for easier management. Use the new history endpoint to review uploads (active and deleted):
+
+```bash
+curl "$BASE_URL$API_PREFIX/agents/$AGENT_ID/documents" \
+  -H "Authorization: Bearer $TOKEN" \
+  | jq
+```
+
+Response shape:
+
+```json
+{
+  "uploads": [
+    {
+      "id": "80b6ed2c-2d5d-4235-9e9f-9f9c1545b203",
+      "agent_id": "d3e9c51d-5a29-4d6f-94b9-88dbe3fbbbfc",
+      "filename": "report.pdf",
+      "content_type": "application/pdf",
+      "size_bytes": 482131,
+      "chunk_count": 18,
+      "embedding_ids": [
+        "d5e9d4f6-4f2d-4a3b-861a-6b5430a96a16",
+        "..."
+      ],
+      "details": {
+        "chunk_size": 400,
+        "chunk_overlap": 80,
+        "batch_size": 50,
+        "characters": 41523,
+        "adjusted": false
+      },
+      "is_deleted": false,
+      "deleted_at": null,
+      "created_at": "2025-10-20T06:12:01.145321+00:00",
+      "updated_at": "2025-10-20T06:12:01.145321+00:00"
+    }
+  ]
+}
+```
+
+### Delete an Uploaded File
+
+To remove the original upload and its associated embeddings, call:
+
+```bash
+curl -X DELETE "$BASE_URL$API_PREFIX/agents/$AGENT_ID/documents/$UPLOAD_ID" \
+  -H "Authorization: Bearer $TOKEN" \
+  | jq
+```
+
+The response echoes the upload record with `is_deleted` set to `true`. Embeddings created from the upload are removed inside the same transaction.
 
 - **GET /schemas/{tool_name}**
   ```bash

@@ -13,6 +13,7 @@ from app.services.agent_service import AgentService
 from app.services.tool_service import ToolService
 from app.services.execution_service import ExecutionService
 from app.services.embedding_service import EmbeddingService
+from app.services.upload_service import UploadService
 
 security = HTTPBearer()
 
@@ -127,3 +128,8 @@ def get_execution_service(db: Session = Depends(get_db)) -> ExecutionService:
 def get_embedding_service(db: Session = Depends(get_db)) -> EmbeddingService:
     """Get embedding service instance"""
     return EmbeddingService(db)
+
+
+def get_upload_service(db: Session = Depends(get_db)) -> UploadService:
+    """Get upload service instance"""
+    return UploadService(db)

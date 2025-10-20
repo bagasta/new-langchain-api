@@ -18,3 +18,4 @@ class User(Base):
     agents = relationship("Agent", back_populates="user")
     auth_tokens = relationship("AuthToken", back_populates="user")
     api_keys = relationship("ApiKey", back_populates="user")
+    uploads = relationship("AgentUpload", back_populates="user")
