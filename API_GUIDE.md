@@ -16,7 +16,7 @@ curl -X POST "http://localhost:8000/api/v1/auth/login" \
 Response:
 ```json
 {
-  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+  "jwt_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
   "token_type": "bearer"
 }
 ```
@@ -28,7 +28,7 @@ Include the token in the Authorization header:
 curl -X GET "http://localhost:8000/api/v1/auth/me" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
-Returns the authenticated user's profile details and echoes the provided `access_token`.
+Returns the authenticated user's profile details, echoes the provided token, and includes `plan_code` when the credential corresponds to an API key.
 
 ## Agent Management
 
@@ -511,7 +511,7 @@ class LangChainAPI:
             f"{self.base_url}/api/v1/auth/login",
             json={"email": email, "password": password}
         )
-        self.token = response.json()["access_token"]
+        self.token = response.json()["jwt_token"]
         self.headers = {"Authorization": f"Bearer {self.token}"}
         return self.token
 
@@ -570,7 +570,7 @@ class LangChainAPI {
             body: JSON.stringify({ email, password }),
         });
         const data = await response.json();
-        this.token = data.access_token;
+        this.token = data.jwt_token;
         return this.token;
     }
 

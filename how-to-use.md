@@ -47,14 +47,15 @@ if echo "$API_KEY_RESPONSE" | jq -e '.access_token' > /dev/null 2>&1; then
 
     # Use the token for authenticated requests
     curl -H "Authorization: Bearer $TOKEN" "$BASE_URL$API_PREFIX/auth/me"
-    # Response includes user profile fields and echoes the same access token.
+    # Response includes user profile fields, echoes the same token, and reports the plan code when an API key is used.
     # Example:
     # {
     #   "id": "0a1b2c3d-....",
     #   "email": "newuser@example.com",
     #   "is_active": true,
     #   "created_at": "2024-06-03T11:22:33.123456",
-    #   "access_token": "..."  # Matches $TOKEN
+    #   "access_token": "...",  # Matches $TOKEN
+    #   "plan_code": "PRO_M"
     # }
 else
     echo "API key generation failed: $API_KEY_RESPONSE"
@@ -96,6 +97,7 @@ If you have access to an already activated user account, use that email/password
   curl -X POST "$BASE_URL$API_PREFIX/auth/login?phone=%2B628123456789&password=changeme"
   ```
   The `password` query parameter accepts either a plaintext password or the stored bcrypt hash (prefix `$2b$12$` or legacy `$bcrypt-sha256$`). Passing the hash lets you authenticate without exposing the raw password when scripting.
+  A successful login response returns a JSON payload containing `jwt_token` (the bearer credential) and `token_type`.
 
 - **POST /register** (query parameters)
   ```bash
@@ -186,7 +188,14 @@ If you have access to an already activated user account, use that email/password
   curl "$BASE_URL$API_PREFIX/auth/me" \
     -H "Authorization: Bearer $TOKEN"
   ```
-  Returns user metadata along with the JWT access token that was supplied in the request. This makes it easy to confirm which key or login session you're currently using.
+  Returns user metadata along with the JWT or API key that was supplied in the request. If the token matches an API key, the response also includes the associated `plan_code`, making it easy to confirm which credential and plan are active.
+
+- **GET /tokens**
+  ```bash
+  curl "$BASE_URL$API_PREFIX/auth/tokens" \
+    -H "Authorization: Bearer $TOKEN"
+  ```
+  Lists every stored auth token for the signed-in user. Look for entries where `service` is `google` to confirm a Google account has been linked and to inspect granted scopes and expirations.
 
 ## Agent Routes (`$API_PREFIX/agents`)
 

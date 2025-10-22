@@ -14,7 +14,7 @@ from app.services.auth_service import (
     DEFAULT_GOOGLE_SCOPES,
     normalize_scopes,
 )
-from app.models import User
+from app.models import User, ApiKey
 from app.schemas.auth import (
     Token,
     GoogleAuthRequest,
@@ -80,10 +80,10 @@ async def login(
                 detail="Inactive user"
             )
 
-        access_token = auth_service.create_access_token(str(user.id))
+        jwt_token = auth_service.create_access_token(str(user.id))
         logger.info("User logged in successfully", user_id=str(user.id))
 
-        return {"access_token": access_token, "token_type": "bearer"}
+        return {"jwt_token": jwt_token, "token_type": "bearer"}
 
     except HTTPException as exc:
         logger.warning("Login failed", error=str(exc.detail), email=email)
@@ -275,15 +275,44 @@ async def google_callback(
 @router.get("/me")
 async def get_current_user_info(
     current_user: User = Depends(get_current_user),
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
 ):
     """Get current user information"""
+    plan_code: Optional[str] = None
+    token = credentials.credentials
+
+    api_key = (
+        db.query(ApiKey)
+        .filter(
+            ApiKey.access_token == token,
+            ApiKey.user_id == current_user.id,
+            ApiKey.is_active.is_(True),
+        )
+        .first()
+    )
+
+    if not api_key:
+        api_key = (
+            db.query(ApiKey)
+            .filter(
+                ApiKey.user_id == current_user.id,
+                ApiKey.is_active.is_(True),
+            )
+            .order_by(ApiKey.expires_at.desc())
+            .first()
+        )
+
+    if api_key:
+        plan_code = api_key.plan_code
+
     return {
         "id": str(current_user.id),
         "email": current_user.email,
         "is_active": current_user.is_active,
         "created_at": current_user.created_at,
-        "access_token": credentials.credentials
+        "access_token": token,
+        "plan_code": plan_code,
     }
 
 

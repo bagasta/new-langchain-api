@@ -35,11 +35,11 @@ The playground provides a 4-step automated testing flow:
 #### Step 1: Register User
 - Creates a new user account
 - Automatically logs in after successful registration
-- Returns access token for subsequent operations
+- Returns a session JWT for subsequent operations
 
 #### Step 2: Login
 - Authenticates with email and password
-- Stores access token automatically
+- Stores the session JWT automatically
 - Validates user credentials
 
 #### Step 3: Create Agent

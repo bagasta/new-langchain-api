@@ -190,9 +190,9 @@ class ApiTestRunner:
         if login_resp.status_code != 200:
             raise AssertionError(f"Login failed: {login_resp.text}")
 
-        self.login_token = login_resp.json().get("access_token")
+        self.login_token = login_resp.json().get("jwt_token")
         if not self.login_token:
-            raise AssertionError("Login succeeded but no access token returned")
+            raise AssertionError("Login succeeded but no jwt token returned")
 
         headers = {"Authorization": f"Bearer {self.login_token}"}
         me_resp = self._request(

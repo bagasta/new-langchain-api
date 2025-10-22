@@ -179,7 +179,7 @@ Agents (N) ←→ (N) Tools (through AgentTools)
 #### User Registration & Login
 - `POST /register` - Supply `email`, `phone`, or `identifier` via query parameters along with `password` to create a user. Accounts are created in an inactive state so they can be reviewed before API access is granted.
 - `POST /login` - Authenticate with query parameters (`email`, `phone`, or `identifier`) and `password`. The password parameter accepts either plaintext or the stored bcrypt hash (prefix `$2b$12$` or legacy `$bcrypt-sha256$`) so automation can authenticate without exposing raw passwords.
-- `GET /me` - Return the current user profile; the response echoes the bearer `access_token` that was supplied in the request so clients can confirm which credential is active.
+- `GET /me` - Return the current user profile; the response echoes the bearer token supplied in the request and, when it's an API key, includes the associated `plan_code` so clients can confirm which credential and subscription are active.
 
 Example response:
 ```json
@@ -358,8 +358,8 @@ curl -X POST "http://localhost:8000/api/v1/auth/register?email=user@example.com&
 #### 2. Login and Get JWT Token
 ```bash
 LOGIN_RESPONSE=$(curl -s -X POST "http://localhost:8000/api/v1/auth/login?email=user@example.com&password=securepassword")
-TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r '.access_token')
-echo "Session token: $TOKEN"
+TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r '.jwt_token')
+echo "Session JWT: $TOKEN"
 ```
 `jq` is used here to extract JSON fields; substitute your preferred JSON parser if needed.
 

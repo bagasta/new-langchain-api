@@ -68,8 +68,8 @@
         path: "/auth/login",
         query: { email, password }
       });
-      if (result.ok && result.data && result.data.access_token) {
-        tokenInput.value = result.data.access_token;
+      if (result.ok && result.data && result.data.jwt_token) {
+        tokenInput.value = result.data.jwt_token;
         persistToken();
       }
     });
@@ -82,8 +82,8 @@
         path: "/auth/register",
         query: { email, password }
       });
-      if (result.ok && result.data && result.data.access_token) {
-        tokenInput.value = result.data.access_token;
+      if (result.ok && result.data && result.data.jwt_token) {
+        tokenInput.value = result.data.jwt_token;
         persistToken();
       }
     });
@@ -517,8 +517,8 @@
       query: { email: testEmail, password: testPassword }
     });
 
-    if (result.ok && result.data && result.data.access_token) {
-      tokenInput.value = result.data.access_token;
+    if (result.ok && result.data && result.data.jwt_token) {
+      tokenInput.value = result.data.jwt_token;
       persistToken();
 
       // Store test credentials for login step
@@ -549,8 +549,8 @@
       query: { email: testEmail, password: testPassword }
     });
 
-    if (result.ok && result.data && result.data.access_token) {
-      tokenInput.value = result.data.access_token;
+    if (result.ok && result.data && result.data.jwt_token) {
+      tokenInput.value = result.data.jwt_token;
       persistToken();
       return result.data;
     } else {

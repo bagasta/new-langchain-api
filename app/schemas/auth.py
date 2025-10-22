@@ -11,7 +11,7 @@ class PlanCode(str, Enum):
 
 
 class Token(BaseModel):
-    access_token: str
+    jwt_token: str
     token_type: str
 
 
