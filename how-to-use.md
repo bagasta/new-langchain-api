@@ -88,7 +88,7 @@ If you have access to an already activated user account, use that email/password
 
 ## Authentication Routes (`$API_PREFIX/auth`)
 
-- **POST /login** (query parameters)
+- **POST /auth/login** (query parameters)
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/auth/login?email=user@example.com&password=changeme"
   ```
@@ -99,7 +99,7 @@ If you have access to an already activated user account, use that email/password
   The `password` query parameter accepts either a plaintext password or the stored bcrypt hash (prefix `$2b$12$` or legacy `$bcrypt-sha256$`). Passing the hash lets you authenticate without exposing the raw password when scripting.
   A successful login response returns a JSON payload containing `jwt_token` (the bearer credential) and `token_type`.
 
-- **POST /register** (query parameters)
+- **POST /auth/register** (query parameters)
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/auth/register?email=newuser@example.com&password=changeme"
   ```
@@ -109,7 +109,7 @@ If you have access to an already activated user account, use that email/password
   ```
   Returns user information without API key. Supply either `email`, `phone`, or `identifier` (email/phone string) along with the password. Phone numbers can include `+` and separators; the API normalizes them to digits only for storage. Use the API key generation endpoint to get access tokens.
 
-- **POST /api-key** (JSON body)
+- **POST /auth/api-key** (JSON body)
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/auth/api-key" \
     -H "Content-Type: application/json" \
@@ -135,7 +135,7 @@ If you have access to an already activated user account, use that email/password
         }'
   ```
 
-- **POST /api-key/update** (JSON body)
+- **POST /auth/api-key/update** (JSON body)
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/auth/api-key/update" \
     -H "Content-Type: application/json" \
@@ -149,7 +149,7 @@ If you have access to an already activated user account, use that email/password
   Extends the selected plan’s expiration for an existing key and reactivates it if it was expired. Returns `true` on success. A bcrypt hash with prefix `$2b$12$` can be supplied in the `password` field as an alternative to the plaintext value.
   Hashes created before this change may use the `$bcrypt-sha256$` prefix and remain valid inputs.
 
-- **POST /user/update-password** (JSON body)
+- **POST /auth/user/update-password** (JSON body)
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/auth/user/update-password" \
     -H "Authorization: Bearer $TOKEN" \
@@ -161,23 +161,23 @@ If you have access to an already activated user account, use that email/password
   ```
   Updates the authenticated user’s password. The `new_password` accepts plaintext or a bcrypt hash (preferred `$2b$12$…`, legacy `$bcrypt-sha256$…` still supported).
 
-- **POST /google/auth**
+- **POST /auth/google/auth**
   ```bash
-  curl -X POST "$BASE_URL$API_PREFIX/auth/google/auth" \
+  curl -X POST "$BASE_URL$API_PREFIX/auth/google" \
     -H "Authorization: Bearer $TOKEN"
   ```
   This endpoint initiates Google OAuth authentication. It no longer requires a request body.
 
   **Note:** The system automatically handles scope changes from Google. When requesting `drive.file` scope, Google may add broader Drive scopes (`drive`, `drive.photos.readonly`, `drive.appdata`) which are accepted as long as all requested scopes are granted.
 
-- **GET /google/auth**
+- **GET /auth/google/auth**
   ```bash
   curl -X GET "$BASE_URL$API_PREFIX/auth/google/auth" \
     -H "Authorization: Bearer $TOKEN"
   ```
   GET method also available for clickable links.
 
-- **GET /google/callback**
+- **GET /auth/google/callback**
   ```bash
   curl "$BASE_URL$API_PREFIX/auth/google/callback?code=auth-code-from-google&state=state-token"
   ```
@@ -186,14 +186,14 @@ If you have access to an already activated user account, use that email/password
   {"message": "Google authentication successful"}
   ```
 
-- **GET /me**
+- **GET /auth/me**
   ```bash
   curl "$BASE_URL$API_PREFIX/auth/me" \
     -H "Authorization: Bearer $TOKEN"
   ```
   Returns user metadata along with the JWT or API key that was supplied in the request. If the token matches an API key, the response also includes the associated `plan_code`, making it easy to confirm which credential and plan are active.
 
-- **GET /google**
+- **GET /auth/google**
   ```bash
   curl "$BASE_URL$API_PREFIX/auth/google" \
     -H "Authorization: Bearer $TOKEN"
@@ -202,7 +202,7 @@ If you have access to an already activated user account, use that email/password
 
 ## Agent Routes (`$API_PREFIX/agents`)
 
-- **POST /** create agent
+- **POST /agents** create agent
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/agents/" \
     -H "Authorization: Bearer $TOKEN" \
@@ -222,7 +222,7 @@ If you have access to an already activated user account, use that email/password
   ```
   Include Google tools only if you have already linked the relevant account, otherwise the response will return `auth_required: true` and an OAuth URL.
 
-- **PUT /{agent_id}** update agent details
+- **PUT /agents/{agent_id}** update agent details
   ```bash
   curl -X PUT "$BASE_URL$API_PREFIX/agents/$AGENT_ID" \
     -H "Authorization: Bearer $TOKEN" \
@@ -292,36 +292,25 @@ If you have access to an already activated user account, use that email/password
 
   The response payload includes the stored MCP configuration. You can confirm the tools are available by running an execution that prompts the model to call one of the MCP tools (e.g., a calculator request) and checking the execution logs for tool usage.
 
-- **GET /** list agents
+- **GET /agents** list agents
   ```bash
   curl "$BASE_URL$API_PREFIX/agents/" \
     -H "Authorization: Bearer $TOKEN"
   ```
 
-- **GET /{agent_id}**
+- **GET /agents/{agent_id}**
   ```bash
   curl "$BASE_URL$API_PREFIX/agents/AGENT_ID" \
     -H "Authorization: Bearer $TOKEN"
   ```
 
-- **PUT /{agent_id}**
-  ```bash
-  curl -X PUT "$BASE_URL$API_PREFIX/agents/AGENT_ID" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{
-          "name": "Updated Agent Name",
-          "status": "active"
-        }'
-  ```
-
-- **DELETE /{agent_id}**
+- **DELETE /agents/{agent_id}**
   ```bash
   curl -X DELETE "$BASE_URL$API_PREFIX/agents/AGENT_ID" \
     -H "Authorization: Bearer $TOKEN"
   ```
 
-- **POST /{agent_id}/execute**
+- **POST /agents/{agent_id}/execute**
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/agents/AGENT_ID/execute" \
     -H "Authorization: Bearer $TOKEN" \
@@ -338,13 +327,13 @@ If you have access to an already activated user account, use that email/password
   The response includes a `response` field containing the assistant's reply. Conversation history is persisted in the `executions` table and is automatically replayed on subsequent executions.
   Use the optional `session_id` field to partition memory (only executions sharing the same session id are replayed).
 
-- **GET /{agent_id}/executions**
+- **GET /agents/{agent_id}/executions**
   ```bash
   curl "$BASE_URL$API_PREFIX/agents/AGENT_ID/executions" \
     -H "Authorization: Bearer $TOKEN"
   ```
 
-- **GET /executions/stats**
+- **GET /agents/executions/stats**
   ```bash
   curl "$BASE_URL$API_PREFIX/agents/executions/stats" \
     -H "Authorization: Bearer $TOKEN"
@@ -352,13 +341,13 @@ If you have access to an already activated user account, use that email/password
 
 ## Tool Routes (`$API_PREFIX/tools`)
 
-- **GET /** list tools (optional `tool_type`)
+- **GET /tools** list tools (optional `tool_type`)
   ```bash
   curl "$BASE_URL$API_PREFIX/tools?tool_type=custom" \
     -H "Authorization: Bearer $TOKEN"
   ```
 
-- **POST /** create tool
+- **POST /tools** create tool
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/tools" \
     -H "Authorization: Bearer $TOKEN" \
@@ -378,13 +367,13 @@ If you have access to an already activated user account, use that email/password
         }'
   ```
 
-- **GET /{tool_id}**
+- **GET /tools/{tool_id}**
   ```bash
   curl "$BASE_URL$API_PREFIX/tools/TOOL_ID" \
     -H "Authorization: Bearer $TOKEN"
   ```
 
-- **PUT /{tool_id}**
+- **PUT /tools/{tool_id}**
   ```bash
   curl -X PUT "$BASE_URL$API_PREFIX/tools/TOOL_ID" \
     -H "Authorization: Bearer $TOKEN" \
@@ -402,13 +391,13 @@ If you have access to an already activated user account, use that email/password
         }'
   ```
 
-- **DELETE /{tool_id}**
+- **DELETE /tools/{tool_id}**
   ```bash
   curl -X DELETE "$BASE_URL$API_PREFIX/tools/TOOL_ID" \
     -H "Authorization: Bearer $TOKEN"
   ```
 
-- **POST /execute**
+- **POST /tools/execute**
   ```bash
   curl -X POST "$BASE_URL$API_PREFIX/tools/execute" \
     -H "Authorization: Bearer $TOKEN" \
@@ -505,13 +494,13 @@ curl -X DELETE "$BASE_URL$API_PREFIX/agents/$AGENT_ID/documents/$UPLOAD_ID" \
 
 The response echoes the upload record with `is_deleted` set to `true`. Embeddings created from the upload are removed inside the same transaction.
 
-- **GET /schemas/{tool_name}**
+- **GET /tools/schemas/{tool_name}**
   ```bash
   curl "$BASE_URL$API_PREFIX/tools/schemas/gmail" \
     -H "Authorization: Bearer $TOKEN"
   ```
 
-- **GET /scopes/required** (comma-separated `tools` list)
+- **GET /tools/scopes/required** (comma-separated `tools` list)
   ```bash
   curl "$BASE_URL$API_PREFIX/tools/scopes/required?tools=gmail,google_sheets" \
     -H "Authorization: Bearer $TOKEN"
