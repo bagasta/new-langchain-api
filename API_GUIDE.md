@@ -212,10 +212,10 @@ Response:
 }
 ```
 
-### Get User Tokens
+### Get Google Tokens
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/auth/tokens" \
+curl -X GET "http://localhost:8000/api/v1/auth/google" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 

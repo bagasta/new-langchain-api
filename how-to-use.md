@@ -190,9 +190,9 @@ If you have access to an already activated user account, use that email/password
   ```
   Returns user metadata along with the JWT or API key that was supplied in the request. If the token matches an API key, the response also includes the associated `plan_code`, making it easy to confirm which credential and plan are active.
 
-- **GET /tokens**
+- **GET /google**
   ```bash
-  curl "$BASE_URL$API_PREFIX/auth/tokens" \
+  curl "$BASE_URL$API_PREFIX/auth/google" \
     -H "Authorization: Bearer $TOKEN"
   ```
   Lists every stored auth token for the signed-in user. Look for entries where `service` is `google` to confirm a Google account has been linked and to inspect granted scopes and expirations.

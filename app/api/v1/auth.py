@@ -471,12 +471,12 @@ async def activate_user(
         )
 
 
-@router.get("/tokens")
-async def get_user_tokens(
+@router.get("/google")
+async def get_google_tokens(
     current_user: User = Depends(get_current_user),
     auth_service: AuthService = Depends(get_auth_service)
 ):
-    """Get user's authentication tokens"""
+    """Get user's Google authentication tokens"""
     tokens = auth_service.get_user_auth_tokens(str(current_user.id))
     return {
         "tokens": [

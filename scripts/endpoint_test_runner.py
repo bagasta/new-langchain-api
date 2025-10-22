@@ -250,7 +250,7 @@ class ApiTestRunner:
 
         tokens_resp = self._request(
             "GET",
-            self._api("/auth/tokens"),
+            self._api("/auth/google"),
             headers=login_headers,
             expected_status=200,
         )

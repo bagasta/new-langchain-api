@@ -93,7 +93,7 @@
     });
 
     document.getElementById("btn-auth-tokens").addEventListener("click", async () => {
-      await apiRequest({ method: "GET", path: "/auth/tokens", auth: true });
+      await apiRequest({ method: "GET", path: "/auth/google", auth: true });
     });
 
     handleSubmit("form-google-auth", async () => {
