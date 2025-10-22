@@ -238,16 +238,9 @@ async def process_google_callback(
         # Save auth token
         auth_service.save_auth_token(str(user.id), token_data)
 
-        # Create access token
-        access_token = auth_service.create_access_token(str(user.id))
-
         logger.info("Google OAuth callback processed", user_id=str(user.id))
 
-        return {
-            "message": "Google authentication successful",
-            "access_token": access_token,
-            "token_type": "bearer"
-        }
+        return {"message": "Google authentication successful"}
 
     except HTTPException as exc:
         logger.warning("Google OAuth callback failed", error=str(exc.detail))
@@ -303,15 +296,18 @@ async def get_current_user_info(
             .first()
         )
 
+    display_token = token
+
     if api_key:
         plan_code = api_key.plan_code
+        display_token = api_key.access_token
 
     return {
         "id": str(current_user.id),
         "email": current_user.email,
         "is_active": current_user.is_active,
         "created_at": current_user.created_at,
-        "access_token": token,
+        "access_token": display_token,
         "plan_code": plan_code,
     }
 

@@ -128,7 +128,7 @@ def test_google_auth_endpoints(client, monkeypatch):
     )
     assert callback_resp.status_code == 200
     callback_data = callback_resp.json()
-    assert "access_token" in callback_data
+    assert callback_data["message"] == "Google authentication successful"
 
 
 def test_tool_endpoints(client, tmp_path):

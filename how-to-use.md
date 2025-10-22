@@ -181,7 +181,10 @@ If you have access to an already activated user account, use that email/password
   ```bash
   curl "$BASE_URL$API_PREFIX/auth/google/callback?code=auth-code-from-google&state=state-token"
   ```
-  Handles the OAuth callback from Google. The authorization token is not required for this endpoint.
+  Handles the OAuth callback from Google. The authorization token is not required for this endpoint. Successful responses now return a simple confirmation payload:
+  ```json
+  {"message": "Google authentication successful"}
+  ```
 
 - **GET /me**
   ```bash

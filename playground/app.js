@@ -387,6 +387,8 @@
       headers[key] = value;
     });
 
+    const displayData = sanitizeDisplayData(request.url, data);
+
     const payload = {
       request: {
         method: request.method,
@@ -398,7 +400,7 @@
         status: response.status,
         statusText: response.statusText,
         headers,
-        data
+        data: displayData
       }
     };
 
@@ -433,6 +435,55 @@
     const message = error instanceof Error ? error.message : String(error);
     responseStatus.textContent = `${context}: ${message}`;
     responseOutput.textContent = message;
+  }
+
+  function sanitizeDisplayData(url, data) {
+    if (!data) {
+      return data;
+    }
+
+    let pathname = "";
+    try {
+      pathname = new URL(url).pathname || "";
+    } catch (_) {
+      pathname = "";
+    }
+
+    if (!pathname && typeof url === "string") {
+      const index = url.indexOf("//");
+      const start = index >= 0 ? url.indexOf("/", index + 2) : url.indexOf("/");
+      pathname = start >= 0 ? url.slice(start) : url;
+    }
+
+    if (
+      pathname.endsWith("/auth/google/callback") ||
+      pathname.endsWith("/oauth/google/callback")
+    ) {
+      const message =
+        typeof data === "object" && data && typeof data.message === "string"
+          ? data.message
+          : "Google authentication successful";
+      return { message };
+    }
+
+    if (typeof data === "object" && data !== null) {
+      const sensitiveKeys = ["access_token", "refresh_token", "jwt_token", "token_type"];
+      const sanitized = Array.isArray(data) ? data.map((item) => sanitizeDisplayData(url, item)) : { ...data };
+      sensitiveKeys.forEach((key) => {
+        if (Array.isArray(sanitized)) {
+          sanitized.forEach((item) => {
+            if (item && typeof item === "object" && key in item) {
+              delete item[key];
+            }
+          });
+        } else if (key in sanitized) {
+          delete sanitized[key];
+        }
+      });
+      return sanitized;
+    }
+
+    return data;
   }
 
   function sanitizeBaseUrl(value) {
