@@ -542,16 +542,34 @@ class ExecutionService:
         categories.update(default_filter.categories)
 
         config = agent.config or {}
-        names.update(self._normalise_str_iterable(config.get("allowed_mcp_tools")))
-        names.update(self._normalise_str_iterable(config.get("mcp_allowed_tools")))
-        categories.update(
-            self._normalise_str_iterable(config.get("allowed_mcp_categories"))
+        names.update(
+            name.strip().lower()
+            for name in self._normalise_str_iterable(config.get("allowed_mcp_tools"))
+            if name
         )
-        categories.update(self._normalise_str_iterable(config.get("mcp_tool_categories")))
+        names.update(
+            name.strip().lower()
+            for name in self._normalise_str_iterable(config.get("mcp_allowed_tools"))
+            if name
+        )
+        categories.update(
+            category.strip().lower()
+            for category in self._normalise_str_iterable(config.get("allowed_mcp_categories"))
+            if category
+        )
+        categories.update(
+            category.strip().lower()
+            for category in self._normalise_str_iterable(config.get("mcp_tool_categories"))
+            if category
+        )
 
         parameter_name_keys = ("allowed_mcp_tools", "mcp_tool_names", "mcp_tools")
         for key in parameter_name_keys:
-            names.update(self._normalise_str_iterable(parameters.get(key)))
+            names.update(
+                name.strip().lower()
+                for name in self._normalise_str_iterable(parameters.get(key))
+                if name
+            )
 
         parameter_category_keys = (
             "allowed_mcp_categories",
@@ -559,7 +577,27 @@ class ExecutionService:
             "mcp_categories",
         )
         for key in parameter_category_keys:
-            categories.update(self._normalise_str_iterable(parameters.get(key)))
+            categories.update(
+                category.strip().lower()
+                for category in self._normalise_str_iterable(parameters.get(key))
+                if category
+            )
+
+        allowed_whitelist = {
+            name.strip().lower()
+            for name in (agent.allowed_tools or [])
+            if isinstance(name, str) and name.strip()
+        }
+        if allowed_whitelist:
+            normalised_whitelist = set(allowed_whitelist)
+            if names:
+                filtered_names = {name for name in names if name in normalised_whitelist}
+                names = filtered_names or set(normalised_whitelist)
+            else:
+                names = set(normalised_whitelist)
+
+            # When an allow-list is present, categories should not broaden access.
+            categories = set()
 
         return MCPToolFilter.from_iterables(
             names=sorted(names),
