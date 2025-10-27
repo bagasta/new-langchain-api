@@ -2,7 +2,9 @@ import base64
 import json
 import re
 import requests
+import secrets
 from datetime import datetime, timedelta
+from ipaddress import ip_address
 from typing import Optional, List, Dict, Any, Sequence
 from uuid import UUID, uuid4
 
@@ -182,6 +184,121 @@ class AuthService:
             "token_type": "bearer",
             "expires_at": expires_at,
             "plan_code": plan_code.value
+        }
+
+    def _purge_expired_trial_api_keys(self, reference_time: Optional[datetime] = None) -> None:
+        """Remove expired trial API keys."""
+        if reference_time is None:
+            reference_time = datetime.utcnow()
+
+        expired_keys = (
+            self.db.query(ApiKey)
+            .filter(
+                ApiKey.plan_code == PlanCode.TRIAL.value,
+                ApiKey.expires_at < reference_time,
+            )
+            .all()
+        )
+
+        if not expired_keys:
+            return
+
+        for api_key in expired_keys:
+            api_key.is_active = False
+            self.db.delete(api_key)
+
+        self.db.commit()
+        logger.info("Purged expired trial API keys", count=len(expired_keys))
+
+    def create_trial_api_key(self, raw_ip: str) -> Dict[str, Any]:
+        """Create or reuse a trial API key for the provided IP address."""
+        try:
+            validated_ip = ip_address(raw_ip)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid IP address format.",
+            ) from None
+
+        now = datetime.utcnow()
+        ip_str = str(validated_ip)
+
+        # Remove any expired trial keys before issuing a new one
+        self._purge_expired_trial_api_keys(now)
+
+        # If an active trial key already exists for this IP, return it
+        existing_key = (
+            self.db.query(ApiKey)
+            .filter(
+                ApiKey.trial_ip == ip_str,
+                ApiKey.plan_code == PlanCode.TRIAL.value,
+                ApiKey.is_active == True,  # noqa: E712 - SQLAlchemy comparison
+                ApiKey.expires_at > now,
+            )
+            .order_by(ApiKey.created_at.desc())
+            .first()
+        )
+
+        if existing_key:
+            logger.info(
+                "Reusing existing trial API key",
+                api_key_id=str(existing_key.id),
+                trial_ip=ip_str,
+            )
+            return {
+                "access_token": existing_key.access_token,
+                "token_type": "bearer",
+                "expires_at": existing_key.expires_at,
+                "plan_code": existing_key.plan_code,
+                "user_id": existing_key.user_id,
+            }
+
+        trial_email = f"trial_{uuid4().hex}@trial.local"
+        random_password = secrets.token_urlsafe(32)
+        hashed_password = get_password_hash(random_password)
+
+        trial_user = User(
+            email=trial_email,
+            password_hash=hashed_password,
+            is_active=True,
+            created_at=now,
+        )
+        self.db.add(trial_user)
+        self.db.flush()  # ensure trial_user.id is populated
+
+        expires_at = now + timedelta(days=14)
+        access_token = create_access_token(
+            str(trial_user.id),
+            expires_delta=timedelta(days=14),
+        )
+
+        api_key = ApiKey(
+            user_id=trial_user.id,
+            access_token=access_token,
+            plan_code=PlanCode.TRIAL.value,
+            expires_at=expires_at,
+            created_at=now,
+            is_active=True,
+            trial_ip=ip_str,
+        )
+
+        self.db.add(api_key)
+        self.db.commit()
+        self.db.refresh(api_key)
+
+        logger.info(
+            "Issued new trial API key",
+            api_key_id=str(api_key.id),
+            trial_ip=ip_str,
+            user_id=str(trial_user.id),
+        )
+
+        return {
+            "access_token": api_key.access_token,
+            "token_type": "bearer",
+            "expires_at": api_key.expires_at,
+            "plan_code": api_key.plan_code,
+            "user_id": trial_user.id,
         }
 
     def get_user_api_keys(self, user_id: str) -> List[ApiKey]:

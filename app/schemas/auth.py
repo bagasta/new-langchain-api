@@ -8,6 +8,7 @@ from uuid import UUID
 class PlanCode(str, Enum):
     PRO_M = "PRO_M"
     PRO_Y = "PRO_Y"
+    TRIAL = "TRIAL"
 
 
 class Token(BaseModel):
@@ -64,6 +65,14 @@ class ApiKeyResponse(BaseModel):
     token_type: str
     expires_at: datetime
     plan_code: str
+
+
+class TrialApiKeyRequest(BaseModel):
+    ip_user: str
+
+
+class TrialApiKeyResponse(ApiKeyResponse):
+    user_id: UUID
 
 
 class ApiKeyUpdateRequest(BaseModel):

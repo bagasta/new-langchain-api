@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.database import get_db
 from app.core.security import verify_token
@@ -14,6 +14,7 @@ from app.services.tool_service import ToolService
 from app.services.execution_service import ExecutionService
 from app.services.embedding_service import EmbeddingService
 from app.services.upload_service import UploadService
+from app.schemas.auth import PlanCode
 
 security = HTTPBearer()
 
@@ -81,9 +82,11 @@ def get_api_key_user(
         )
 
     # Check if API key is expired
-    from datetime import timezone
     if api_key.expires_at < datetime.now(timezone.utc):
-        api_key.is_active = False
+        if api_key.plan_code == PlanCode.TRIAL.value:
+            db.delete(api_key)
+        else:
+            api_key.is_active = False
         db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

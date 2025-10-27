@@ -81,6 +81,33 @@ def test_register_and_login_flow(client):
     assert me_resp_y.json()["plan_code"] == "PRO_Y"
 
 
+def test_trial_api_key_endpoint(client):
+    ip_address = "203.0.113.5"
+    response = client.post(
+        f"{API_PREFIX}/auth/api-key/trial",
+        json={"ip_user": ip_address},
+    )
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert data["plan_code"] == "TRIAL"
+    assert data["user_id"]
+    assert data["access_token"]
+
+    second_response = client.post(
+        f"{API_PREFIX}/auth/api-key/trial",
+        json={"ip_user": ip_address},
+    )
+    assert second_response.status_code == 201, second_response.text
+    second_data = second_response.json()
+    assert second_data["access_token"] == data["access_token"]
+    assert second_data["user_id"] == data["user_id"]
+
+    invalid_response = client.post(
+        f"{API_PREFIX}/auth/api-key/trial",
+        json={"ip_user": "not-an-ip"},
+    )
+    assert invalid_response.status_code == 400
+
 def test_google_auth_endpoints(client, monkeypatch):
     creds = _register_user(client)
     api_key = _generate_api_key(client, creds["email"], creds["password"])

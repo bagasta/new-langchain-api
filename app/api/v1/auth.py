@@ -22,6 +22,8 @@ from app.schemas.auth import (
     GoogleAuthCallback,
     ApiKeyRequest,
     ApiKeyResponse,
+    TrialApiKeyRequest,
+    TrialApiKeyResponse,
     ApiKeyUpdateRequest,
     UserPasswordUpdateRequest,
 )
@@ -338,6 +340,42 @@ async def generate_api_key(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate API key: {str(e)}"
+        )
+
+
+@router.post("/api-key/trial", response_model=TrialApiKeyResponse, status_code=status.HTTP_201_CREATED)
+async def generate_trial_api_key(
+    request: TrialApiKeyRequest,
+    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Issue a trial API key for visitors based on their IP address."""
+    try:
+        api_key_data = auth_service.create_trial_api_key(request.ip_user)
+
+        logger.info(
+            "Trial API key issued",
+            trial_ip=request.ip_user,
+            user_id=str(api_key_data.get("user_id")),
+        )
+
+        return TrialApiKeyResponse(**api_key_data)
+    except HTTPException as exc:
+        logger.warning(
+            "Trial API key issuance failed",
+            error=str(exc.detail),
+            trial_ip=request.ip_user,
+        )
+        raise exc
+    except Exception as e:
+        logger.error(
+            "Trial API key issuance failed",
+            error=str(e),
+            trial_ip=request.ip_user,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate trial API key: {str(e)}"
         )
 
 
