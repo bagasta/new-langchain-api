@@ -56,6 +56,14 @@ DEFAULT_GOOGLE_SCOPES: List[str] = normalize_scopes(
     ]
 )
 
+GOOGLE_IDENTITY_SCOPES: List[str] = normalize_scopes(
+    [
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "openid",
+    ]
+)
+
 
 class AuthService:
     _EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -415,7 +423,8 @@ class AuthService:
         return TokenData(sub=user_id)
 
     def create_google_auth_url(self, user_id: str, scopes: Optional[Sequence[str]] = None) -> Dict[str, str]:
-        scopes = normalize_scopes(scopes or DEFAULT_GOOGLE_SCOPES)
+        requested_scopes = normalize_scopes(scopes or DEFAULT_GOOGLE_SCOPES)
+        scopes = normalize_scopes(list(requested_scopes) + GOOGLE_IDENTITY_SCOPES)
         state_payload = {
             "u": user_id,
             "n": str(uuid4()),
@@ -456,6 +465,7 @@ class AuthService:
     ) -> Dict[str, Any]:
         try:
             requested_scopes = normalize_scopes(scopes or DEFAULT_GOOGLE_SCOPES)
+            requested_scopes = normalize_scopes(list(requested_scopes) + GOOGLE_IDENTITY_SCOPES)
 
             # Use manual token exchange to bypass Flow's scope validation
             token_data = self._manual_google_token_exchange(code, requested_scopes)

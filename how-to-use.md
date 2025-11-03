@@ -253,7 +253,7 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
     -H "Content-Type: application/json" \
     -d '{
           "name": "Research Assistant (MCP)",
-          "tools": ["gmail"],
+          "google_tools": ["gmail"],
           "config": {
             "llm_model": "gpt-4o-mini",
             "temperature": 0.5,
@@ -266,7 +266,7 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
               "headers": {"Authorization": "Bearer jango"}
             }
           },
-          "allowed_tools": ["web_search", "web_fetch", "pdf_generate", "docx_generate", "deep_research", "google_calendar", "send_reminder", "send_messages"]
+          "mcp_tools": ["web_search", "web_fetch", "pdf_generate", "docx_generate", "deep_research", "google_calendar", "send_reminder", "send_messages"]
         }'
   ```
 
@@ -325,7 +325,7 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
     -H "Content-Type: application/json" \
     -d '{
           "name": "Research Assistant (MCP)",
-          "tools": ["gmail"],
+          "google_tools": ["gmail"],
           "config": {
             "llm_model": "gpt-4o-mini",
             "temperature": 0.5,
@@ -338,7 +338,7 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
               "headers": {"Authorization": "Bearer jango"}
             }
           },
-          "allowed_tools": ["web_search", "web_fetch", "pdf_generate", "docx_generate", "deep_research", "google_calendar", "send_reminder", "send_messages"]
+          "mcp_tools": ["web_search", "web_fetch", "pdf_generate", "docx_generate", "deep_research", "google_calendar", "send_reminder", "send_messages"]
         }'
   ```
 

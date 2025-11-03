@@ -32,6 +32,12 @@ from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import Tool as LangChainTool, BaseTool
+from app.tools.google_tools import GOOGLE_TOOL_SCOPE_MAP
+
+GOOGLE_WORKSPACE_TOOL_NAMES = {
+    *(name.lower() for name in GOOGLE_TOOL_SCOPE_MAP.keys()),
+    "gmail",
+}
 
 
 class ExecutionService:
@@ -46,6 +52,21 @@ class ExecutionService:
         if not ExecutionService._session_column_checked:
             self._ensure_session_column()
             ExecutionService._session_column_checked = True
+
+    @staticmethod
+    def _filter_google_workspace_tools(values: Iterable[str]) -> set[str]:
+        filtered: set[str] = set()
+        for raw in values:
+            if raw is None:
+                continue
+            text = raw if isinstance(raw, str) else str(raw)
+            normalised = text.strip().lower()
+            if not normalised:
+                continue
+            if normalised in GOOGLE_WORKSPACE_TOOL_NAMES:
+                continue
+            filtered.add(normalised)
+        return filtered
 
     async def execute_agent(
         self,
@@ -534,42 +555,41 @@ class ExecutionService:
         agent: Agent,
         parameters: Mapping[str, Any],
     ) -> MCPToolFilter:
-        names = set()
-        categories = set()
+        names: set[str] = set()
+        categories: set[str] = set()
+
+        def _accumulate_names(raw_values: Iterable[Any]) -> None:
+            for value in raw_values or []:
+                if value is None:
+                    continue
+                text = value if isinstance(value, str) else str(value)
+                cleaned = text.strip().lower()
+                if not cleaned or cleaned in GOOGLE_WORKSPACE_TOOL_NAMES:
+                    continue
+                names.add(cleaned)
+
+        def _accumulate_categories(raw_values: Iterable[Any]) -> None:
+            for value in raw_values or []:
+                if value is None:
+                    continue
+                text = value if isinstance(value, str) else str(value)
+                cleaned = text.strip().lower()
+                if cleaned:
+                    categories.add(cleaned)
 
         default_filter = get_default_tool_filter()
-        names.update(default_filter.names)
-        categories.update(default_filter.categories)
+        _accumulate_names(default_filter.names)
+        _accumulate_categories(default_filter.categories)
 
         config = agent.config or {}
-        names.update(
-            name.strip().lower()
-            for name in self._normalise_str_iterable(config.get("allowed_mcp_tools"))
-            if name
-        )
-        names.update(
-            name.strip().lower()
-            for name in self._normalise_str_iterable(config.get("mcp_allowed_tools"))
-            if name
-        )
-        categories.update(
-            category.strip().lower()
-            for category in self._normalise_str_iterable(config.get("allowed_mcp_categories"))
-            if category
-        )
-        categories.update(
-            category.strip().lower()
-            for category in self._normalise_str_iterable(config.get("mcp_tool_categories"))
-            if category
-        )
+        _accumulate_names(self._normalise_str_iterable(config.get("allowed_mcp_tools")))
+        _accumulate_names(self._normalise_str_iterable(config.get("mcp_allowed_tools")))
+        _accumulate_categories(self._normalise_str_iterable(config.get("allowed_mcp_categories")))
+        _accumulate_categories(self._normalise_str_iterable(config.get("mcp_tool_categories")))
 
         parameter_name_keys = ("allowed_mcp_tools", "mcp_tool_names", "mcp_tools")
         for key in parameter_name_keys:
-            names.update(
-                name.strip().lower()
-                for name in self._normalise_str_iterable(parameters.get(key))
-                if name
-            )
+            _accumulate_names(self._normalise_str_iterable(parameters.get(key)))
 
         parameter_category_keys = (
             "allowed_mcp_categories",
@@ -577,17 +597,9 @@ class ExecutionService:
             "mcp_categories",
         )
         for key in parameter_category_keys:
-            categories.update(
-                category.strip().lower()
-                for category in self._normalise_str_iterable(parameters.get(key))
-                if category
-            )
+            _accumulate_categories(self._normalise_str_iterable(parameters.get(key)))
 
-        allowed_whitelist = {
-            name.strip().lower()
-            for name in (agent.allowed_tools or [])
-            if isinstance(name, str) and name.strip()
-        }
+        allowed_whitelist = self._filter_google_workspace_tools(agent.allowed_tools or [])
         if allowed_whitelist:
             normalised_whitelist = set(allowed_whitelist)
             if names:

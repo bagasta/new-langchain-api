@@ -1,4 +1,12 @@
-from pydantic import BaseModel, Field, field_validator, model_validator, AnyHttpUrl, ConfigDict
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+    model_validator,
+    AnyHttpUrl,
+    ConfigDict,
+    AliasChoices,
+)
 from typing import Optional, List, Dict, Any, Literal
 from uuid import UUID
 from datetime import datetime
@@ -49,10 +57,16 @@ class MCPServerConfig(BaseModel):
 
 class AgentCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    tools: List[str] = Field(default=[])
+    tools: List[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("tools", "google_tools"),
+    )
     config: Optional[AgentConfig] = None
     mcp_servers: Dict[str, MCPServerConfig] = Field(default_factory=dict)
-    allowed_tools: List[str] = Field(default_factory=list)
+    allowed_tools: List[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("allowed_tools", "mcp_tools"),
+    )
 
     @field_validator("tools", mode="before")
     @classmethod
@@ -92,11 +106,17 @@ class AgentCreate(BaseModel):
 
 class AgentUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
-    tools: Optional[List[str]] = None
+    tools: Optional[List[str]] = Field(
+        default=None,
+        validation_alias=AliasChoices("tools", "google_tools"),
+    )
     config: Optional[AgentConfigUpdate] = None
     status: Optional[AgentStatus] = None
     mcp_servers: Optional[Dict[str, MCPServerConfig]] = None
-    allowed_tools: Optional[List[str]] = None
+    allowed_tools: Optional[List[str]] = Field(
+        default=None,
+        validation_alias=AliasChoices("allowed_tools", "mcp_tools"),
+    )
 
     @field_validator("tools", mode="before")
     @classmethod
