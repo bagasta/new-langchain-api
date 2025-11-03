@@ -216,7 +216,7 @@ If you have access to an already activated user account, use that email/password
     -H "Authorization: Bearer $JWT_TOKEN"
   ```
 
-  Returns user metadata along with the JWT or API key that was supplied in the request. If the token matches an API key, the response also includes the associated `plan_code`, making it easy to confirm which credential and plan are active.
+Returns user metadata along with the JWT or API key that was supplied in the request. If the token matches an API key, the response also includes the associated `plan_code`, making it easy to confirm which credential and plan are active.
 
 - **GET /google**
   ```bash
@@ -224,6 +224,24 @@ If you have access to an already activated user account, use that email/password
     -H "Authorization: Bearer $TOKEN"
   ```
   Lists every stored auth token for the signed-in user. Look for entries where `service` is `google` to confirm a Google account has been linked and to inspect granted scopes and expirations.
+
+## End-to-End Regression Script
+
+Run the bundled regression script to exercise the full API surface—registration, activation, login, API keys, tools, agents, and optional Google OAuth—in one pass:
+
+```bash
+python3 scripts/endpoint_test_runner.py --help
+
+# Example run against a local instance
+python3 scripts/endpoint_test_runner.py \
+  --base-url "$BASE_URL" \
+  --api-prefix "$API_PREFIX" \
+  --email "regression@example.com" \
+  --password "S3curePass!" \
+  --plan-code PRO_M
+```
+
+Each step reports whether it passed, failed, or was skipped, giving you a quick regression check on a running deployment.
 
 ## Agent Routes (`$API_PREFIX/agents`)
 
