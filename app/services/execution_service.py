@@ -471,7 +471,8 @@ class ExecutionService:
             agent_id=str(agent_id),
             chunks=len(lines),
         )
-        return "\n\n".join(lines)
+        raw_context = "\n\n".join(lines)
+        return self._escape_prompt_literal(raw_context)
 
     def _resolve_mcp_connection_settings(
         self,
@@ -755,6 +756,12 @@ class ExecutionService:
         body_lines = [f"    {key}: {value}" for key, value in fields.items() if value is not None]
         message = "\n".join([header, *body_lines])
         logger.info(message, **fields)
+
+    @staticmethod
+    def _escape_prompt_literal(value: str) -> str:
+        if not value:
+            return value
+        return value.replace("{", "{{").replace("}", "}}")
 
     @staticmethod
     def _ensure_runnable_identity(runnable: Any, prefix: str) -> None:
