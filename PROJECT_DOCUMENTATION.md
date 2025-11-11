@@ -198,7 +198,7 @@ Example response:
 - `GET /google/callback` - Handle the OAuth callback; reconciles Google scope changes automatically
 
 #### API Key Management
-- `POST /api-key` - Generate a new plan-based API key; request body includes `username`, `password`, and `plan_code` (`PRO_M` 30 days, `PRO_Y` 365 days)
+- `POST /api-key` - Generate a new plan-based API key; request body includes `username`, `password`, and `plan_code` (`PRO_M` 30 days, `PRO_Y` 365 days, `TRIAL` 14 days)
 - `POST /api-key/update` - Extend or reactivate an existing key by providing `username`, `password`, `plan_code`, and the current `access_token`
 - `POST /user/update-password` - Rotate a user's password using plaintext or a supported bcrypt hash
 

@@ -68,6 +68,11 @@ GOOGLE_IDENTITY_SCOPES: List[str] = normalize_scopes(
 class AuthService:
     _EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     _PHONE_REGEX = re.compile(r"^\d{8,15}$")
+    _PLAN_EXPIRATION_DAYS = {
+        PlanCode.PRO_M: 30,
+        PlanCode.PRO_Y: 365,
+        PlanCode.TRIAL: 14,
+    }
 
     @staticmethod
     def _is_supported_hash(password: str) -> bool:
@@ -160,16 +165,7 @@ class AuthService:
                 detail="User account is inactive"
             )
 
-        # Calculate expiration based on plan
-        if plan_code == PlanCode.PRO_M:
-            expires_at = datetime.utcnow() + timedelta(days=30)
-        elif plan_code == PlanCode.PRO_Y:
-            expires_at = datetime.utcnow() + timedelta(days=365)
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid plan code"
-            )
+        expires_at = self._calculate_plan_expiration(plan_code)
 
         # Create API key
         access_token = self.create_access_token(str(user.id))
@@ -363,15 +359,7 @@ class AuthService:
                 detail="API key not found"
             )
 
-        if plan_code == PlanCode.PRO_M:
-            expires_at = datetime.utcnow() + timedelta(days=30)
-        elif plan_code == PlanCode.PRO_Y:
-            expires_at = datetime.utcnow() + timedelta(days=365)
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid plan code"
-            )
+        expires_at = self._calculate_plan_expiration(plan_code)
 
         api_key.plan_code = plan_code.value
         api_key.expires_at = expires_at
@@ -400,6 +388,16 @@ class AuthService:
             self.db.commit()
             return True
         return False
+
+    def _calculate_plan_expiration(self, plan_code: PlanCode) -> datetime:
+        """Return the UTC expiration timestamp for the requested plan."""
+        days = self._PLAN_EXPIRATION_DAYS.get(plan_code)
+        if days is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid plan code"
+            )
+        return datetime.utcnow() + timedelta(days=days)
 
     def create_access_token(self, user_id: str) -> str:
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

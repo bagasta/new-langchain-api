@@ -81,6 +81,24 @@ def test_register_and_login_flow(client):
     assert me_resp_y.json()["plan_code"] == "PRO_Y"
 
 
+def test_api_key_trial_plan_via_password_flow(client):
+    creds = _register_user(client)
+
+    response = client.post(
+        f"{API_PREFIX}/auth/api-key",
+        json={"username": creds["email"], "password": creds["password"], "plan_code": "TRIAL"},
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["plan_code"] == "TRIAL"
+
+    expires_at = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
+    remaining = expires_at - datetime.utcnow()
+    assert remaining >= timedelta(days=13)
+    assert remaining <= timedelta(days=15)
+
+
+
 def test_trial_api_key_endpoint(client):
     ip_address = "203.0.113.5"
     response = client.post(
@@ -107,6 +125,7 @@ def test_trial_api_key_endpoint(client):
         json={"ip_user": "not-an-ip"},
     )
     assert invalid_response.status_code == 400
+
 
 def test_google_auth_endpoints(client, monkeypatch):
     creds = _register_user(client)

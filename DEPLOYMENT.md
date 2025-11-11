@@ -134,6 +134,7 @@ docker-compose -f docker-compose.prod.yml up -d --scale app=3
 4. Reload systemd and start the service so it stays up continuously:
    ```bash
    sudo systemctl daemon-reload
+   sudo systemctl restart langchain-api-new.service
    sudo systemctl enable --now langchain-api-new
    sudo systemctl status langchain-api-new
    ```

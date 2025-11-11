@@ -129,6 +129,8 @@ If you have access to an already activated user account, use that email/password
 
   - `PRO_M`: 30 days expiration
   - `PRO_Y`: 365 days expiration
+  - `TRIAL`: 14 days (two weeks) expiration
+
     The `username` field accepts the email address or phone number used during registration.
     The `password` field accepts either the plaintext value or an existing bcrypt hash using prefix `$2b$12$`. Supplying the stored hash allows you to avoid sending the raw password.
     Older accounts might still have hashes starting with `$bcrypt-sha256$`; those are also accepted.
@@ -156,7 +158,7 @@ If you have access to an already activated user account, use that email/password
         }'
   ```
 
-  Extends the selected plan’s expiration for an existing key and reactivates it if it was expired. Returns `true` on success. A bcrypt hash with prefix `$2b$12$` can be supplied in the `password` field as an alternative to the plaintext value.
+  Extends the selected plan’s expiration for an existing key and reactivates it if it was expired. Supported `plan_code` values match the generation endpoint (`PRO_M`, `PRO_Y`, `TRIAL`) with the same 30/365/14 day durations. Returns `true` on success. A bcrypt hash with prefix `$2b$12$` can be supplied in the `password` field as an alternative to the plaintext value.
   Hashes created before this change may use the `$bcrypt-sha256$` prefix and remain valid inputs.
 
 - **POST /api-key/trial** (JSON body)
