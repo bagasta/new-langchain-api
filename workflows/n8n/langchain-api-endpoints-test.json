@@ -1,0 +1,1423 @@
+{
+  "name": "LangChain API Endpoint Regression",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [
+        -1800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "baseUrl",
+              "value": "http://localhost:8000"
+            },
+            {
+              "name": "emailLocalPart",
+              "value": "qa"
+            },
+            {
+              "name": "emailDomain",
+              "value": "example.com"
+            },
+            {
+              "name": "initialPassword",
+              "value": "Test1234!"
+            },
+            {
+              "name": "planCode",
+              "value": "PRO_M"
+            },
+            {
+              "name": "trialIp",
+              "value": "203.0.113.10"
+            },
+            {
+              "name": "agentNamePrefix",
+              "value": "QA Agent"
+            },
+            {
+              "name": "agentInput",
+              "value": "Summarize the current LangChain API testing status."
+            },
+            {
+              "name": "fileNamePrefix",
+              "value": "agent-doc"
+            }
+          ],
+          "number": [],
+          "boolean": []
+        }
+      },
+      "id": "2",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "suffix",
+              "value": "={{$now.toFormat('yyyyLLddHHmmss')}}"
+            },
+            {
+              "name": "baseUrl",
+              "value": "={{$node[\"Config\"].json[\"baseUrl\"]}}"
+            },
+            {
+              "name": "initialPassword",
+              "value": "={{$node[\"Config\"].json[\"initialPassword\"]}}"
+            },
+            {
+              "name": "planCode",
+              "value": "={{$node[\"Config\"].json[\"planCode\"]}}"
+            },
+            {
+              "name": "trialIp",
+              "value": "={{$node[\"Config\"].json[\"trialIp\"]}}"
+            },
+            {
+              "name": "agentInput",
+              "value": "={{$node[\"Config\"].json[\"agentInput\"]}}"
+            },
+            {
+              "name": "email",
+              "value": "={{($node[\"Config\"].json[\"emailLocalPart\"] || 'qa') + '-' + $json['suffix'] + '@' + ($node[\"Config\"].json[\"emailDomain\"] || 'example.com')}}"
+            },
+            {
+              "name": "agentName",
+              "value": "={{($node[\"Config\"].json[\"agentNamePrefix\"] || 'QA Agent') + ' ' + $json['suffix']}}"
+            },
+            {
+              "name": "updatedPassword",
+              "value": "={{($node[\"Config\"].json[\"initialPassword\"] || 'Test1234!') + '!Next1'}}"
+            },
+            {
+              "name": "sessionId",
+              "value": "={{'session-' + $json['suffix']}}"
+            },
+            {
+              "name": "documentContent",
+              "value": "={{'LangChain API regression doc generated at ' + $now.toISO()}}"
+            },
+            {
+              "name": "fileName",
+              "value": "={{($node[\"Config\"].json[\"fileNamePrefix\"] || 'agent-doc') + '-' + $json['suffix'] + '.txt'}}"
+            }
+          ],
+          "number": [],
+          "boolean": []
+        }
+      },
+      "id": "3",
+      "name": "Runtime Vars",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        -1400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/register",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "email",
+              "value": "={{$node[\"Runtime Vars\"].json[\"email\"]}}"
+            },
+            {
+              "name": "password",
+              "value": "={{$node[\"Runtime Vars\"].json[\"initialPassword\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "4",
+      "name": "Register User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/activate",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "email",
+              "value": "={{$node[\"Runtime Vars\"].json[\"email\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "5",
+      "name": "Activate User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -1000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/login",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "email",
+              "value": "={{$node[\"Runtime Vars\"].json[\"email\"]}}"
+            },
+            {
+              "name": "password",
+              "value": "={{$node[\"Runtime Vars\"].json[\"initialPassword\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "Login (Initial Password)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/me",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Login (Initial Password)\"].json[\"jwt_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "7",
+      "name": "Get Current User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/google/auth",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Login (Initial Password)\"].json[\"jwt_token\"]}}"
+            }
+          ]
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({ email: $node[\"Runtime Vars\"].json[\"email\"] }) }}"
+      },
+      "id": "8",
+      "name": "Google OAuth (POST)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/google/auth",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Login (Initial Password)\"].json[\"jwt_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "9",
+      "name": "Google OAuth (GET)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/google",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Login (Initial Password)\"].json[\"jwt_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "10",
+      "name": "List Google Tokens",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/google/callback",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "code",
+              "value": "dummy-code"
+            },
+            {
+              "name": "state",
+              "value": "={{$node[\"Google OAuth (POST)\"].json.state || 'dummy-state'}}"
+            },
+            {
+              "name": "scope",
+              "value": "email profile"
+            }
+          ]
+        }
+      },
+      "id": "11",
+      "name": "Google Callback (Expected Failure)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        200,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/api-key/trial",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({ ip_user: $node[\"Runtime Vars\"].json[\"trialIp\"] }) }}"
+      },
+      "id": "12",
+      "name": "Trial API Key",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/api-key",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({ username: $node[\"Runtime Vars\"].json[\"email\"], password: $node[\"Runtime Vars\"].json[\"initialPassword\"], plan_code: $node[\"Runtime Vars\"].json[\"planCode\"] }) }}"
+      },
+      "id": "13",
+      "name": "Generate API Key",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/tools",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "14",
+      "name": "List Tools (All)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/tools",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "tool_type",
+              "value": "builtin"
+            }
+          ]
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "15",
+      "name": "List Tools (Builtin)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/tools",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({ name: 'custom_tool_' + $node[\"Runtime Vars\"].json[\"suffix\"], description: 'Synthetic tool for regression workflow', schema: { type: 'object', properties: { action: { type: 'string', enum: ['ping','echo'] }, payload: { type: 'string' } }, required: ['action'] }, type: 'custom' }) }}"
+      },
+      "id": "16",
+      "name": "Create Custom Tool",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/tools/{{$node[\"Create Custom Tool\"].json.id}}",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "17",
+      "name": "Get Custom Tool",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "PUT",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/tools/{{$node[\"Create Custom Tool\"].json.id}}",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({ description: 'Updated description from regression workflow' }) }}"
+      },
+      "id": "18",
+      "name": "Update Custom Tool",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/tools/schemas/{{$node[\"Create Custom Tool\"].json.id}}",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "19",
+      "name": "Get Tool Schema",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/tools/execute",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({ tool_id: $node[\"Create Custom Tool\"].json.id, parameters: { action: 'ping', payload: 'auto-test' } }) }}"
+      },
+      "id": "20",
+      "name": "Execute Custom Tool",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/tools/scopes/required",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "tools",
+              "value": "gmail,google_calendar"
+            }
+          ]
+        }
+      },
+      "id": "21",
+      "name": "Required Scopes Lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "DELETE",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/tools/{{$node[\"Create Custom Tool\"].json.id}}",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "22",
+      "name": "Delete Custom Tool",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/agents",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({ name: $node[\"Runtime Vars\"].json[\"agentName\"], tools: ['json'], allowed_tools: ['fetch_web_content'], config: { llm_model: 'gpt-4o-mini', temperature: 0.2, max_tokens: 400, memory_type: 'buffer', reasoning_strategy: 'react', system_prompt: 'You are an automated QA canary ensuring the API works end-to-end.' }, mcp_servers: { langchain_mcp: { transport: 'streamable_http', url: 'https://example.com/mcp', headers: { Authorization: 'Bearer sample' } } } }) }}"
+      },
+      "id": "23",
+      "name": "Create Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/agents",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "24",
+      "name": "List Agents",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/agents/{{$node[\"Create Agent\"].json.id}}",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "25",
+      "name": "Get Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "PUT",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/agents/{{$node[\"Create Agent\"].json.id}}",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({ name: $node[\"Runtime Vars\"].json[\"agentName\"] + ' Updated', config: { temperature: 0.3 } }) }}"
+      },
+      "id": "26",
+      "name": "Update Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "documentContent",
+              "value": "={{$node[\"Runtime Vars\"].json[\"documentContent\"]}}"
+            },
+            {
+              "name": "fileName",
+              "value": "={{$node[\"Runtime Vars\"].json[\"fileName\"]}}"
+            }
+          ],
+          "number": [],
+          "boolean": []
+        }
+      },
+      "id": "27",
+      "name": "Document Content",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        3400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const content = item.json.documentContent || '';\\nconst fileName = item.json.fileName || 'agent-doc.txt';\\nitem.binary = item.binary || {};\\nitem.binary.agentDoc = {\\n  data: Buffer.from(content, 'utf8').toString('base64'),\\n  mimeType: 'text/plain',\\n  fileName,\\n};\\nreturn item;"
+      },
+      "id": "28",
+      "name": "Generate Document Binary",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [
+        3600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/agents/{{$node[\"Create Agent\"].json.id}}/documents",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        },
+        "sendBinaryData": true,
+        "binaryPropertyName": "agentDoc",
+        "bodyContentType": "multipart-form-data",
+        "formDataUi": {
+          "parameter": [
+            {
+              "name": "chunk_size",
+              "value": "800"
+            },
+            {
+              "name": "chunk_overlap",
+              "value": "50"
+            },
+            {
+              "name": "batch_size",
+              "value": "200"
+            }
+          ]
+        }
+      },
+      "id": "29",
+      "name": "Upload Agent Document",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/agents/{{$node[\"Create Agent\"].json.id}}/documents",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "30",
+      "name": "List Agent Documents",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        4000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "DELETE",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/agents/{{$node[\"Create Agent\"].json.id}}/documents/{{$node[\"Upload Agent Document\"].json.upload_id || $node[\"Upload Agent Document\"].json.uploadId}}",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "31",
+      "name": "Delete Agent Document",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        4200,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/agents/{{$node[\"Create Agent\"].json.id}}/execute",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({ input: $node[\"Runtime Vars\"].json[\"agentInput\"], parameters: { max_results: 5 }, session_id: $node[\"Runtime Vars\"].json[\"sessionId\"] }) }}"
+      },
+      "id": "32",
+      "name": "Execute Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        4400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/agents/{{$node[\"Create Agent\"].json.id}}/executions",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "33",
+      "name": "Agent Executions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        4600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/agents/executions/stats",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "34",
+      "name": "Execution Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        4800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "DELETE",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/agents/{{$node[\"Create Agent\"].json.id}}",
+        "options": {},
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Generate API Key\"].json[\"access_token\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "35",
+      "name": "Delete Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        5000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/user/update-password",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node[\"Login (Initial Password)\"].json[\"jwt_token\"]}}"
+            }
+          ]
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({ user_id: $node[\"Register User\"].json.user_id || $node[\"Register User\"].json.userId, new_password: $node[\"Runtime Vars\"].json[\"updatedPassword\"] }) }}"
+      },
+      "id": "36",
+      "name": "Update User Password",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        5200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/login",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "email",
+              "value": "={{$node[\"Runtime Vars\"].json[\"email\"]}}"
+            },
+            {
+              "name": "password",
+              "value": "={{$node[\"Runtime Vars\"].json[\"updatedPassword\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "37",
+      "name": "Login (Updated Password)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        5400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$node[\"Runtime Vars\"].json[\"baseUrl\"]}}/api/v1/auth/api-key/update",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({ username: $node[\"Runtime Vars\"].json[\"email\"], password: $node[\"Runtime Vars\"].json[\"updatedPassword\"], access_token: $node[\"Generate API Key\"].json.access_token, plan_code: $node[\"Runtime Vars\"].json[\"planCode\"] }) }}"
+      },
+      "id": "38",
+      "name": "Update API Key",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        5600,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Runtime Vars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Runtime Vars": {
+      "main": [
+        [
+          {
+            "node": "Register User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register User": {
+      "main": [
+        [
+          {
+            "node": "Activate User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Activate User": {
+      "main": [
+        [
+          {
+            "node": "Login (Initial Password)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login (Initial Password)": {
+      "main": [
+        [
+          {
+            "node": "Get Current User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Current User": {
+      "main": [
+        [
+          {
+            "node": "Google OAuth (POST)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google OAuth (POST)": {
+      "main": [
+        [
+          {
+            "node": "Google OAuth (GET)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google OAuth (GET)": {
+      "main": [
+        [
+          {
+            "node": "List Google Tokens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Google Tokens": {
+      "main": [
+        [
+          {
+            "node": "Google Callback (Expected Failure)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Callback (Expected Failure)": {
+      "main": [
+        [
+          {
+            "node": "Trial API Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trial API Key": {
+      "main": [
+        [
+          {
+            "node": "Generate API Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate API Key": {
+      "main": [
+        [
+          {
+            "node": "List Tools (All)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Tools (All)": {
+      "main": [
+        [
+          {
+            "node": "List Tools (Builtin)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Tools (Builtin)": {
+      "main": [
+        [
+          {
+            "node": "Create Custom Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Custom Tool": {
+      "main": [
+        [
+          {
+            "node": "Get Custom Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Custom Tool": {
+      "main": [
+        [
+          {
+            "node": "Update Custom Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Custom Tool": {
+      "main": [
+        [
+          {
+            "node": "Get Tool Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Tool Schema": {
+      "main": [
+        [
+          {
+            "node": "Execute Custom Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Custom Tool": {
+      "main": [
+        [
+          {
+            "node": "Required Scopes Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Required Scopes Lookup": {
+      "main": [
+        [
+          {
+            "node": "Delete Custom Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Custom Tool": {
+      "main": [
+        [
+          {
+            "node": "Create Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Agent": {
+      "main": [
+        [
+          {
+            "node": "List Agents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Agents": {
+      "main": [
+        [
+          {
+            "node": "Get Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Agent": {
+      "main": [
+        [
+          {
+            "node": "Update Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Agent": {
+      "main": [
+        [
+          {
+            "node": "Document Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Content": {
+      "main": [
+        [
+          {
+            "node": "Generate Document Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Document Binary": {
+      "main": [
+        [
+          {
+            "node": "Upload Agent Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Agent Document": {
+      "main": [
+        [
+          {
+            "node": "List Agent Documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Agent Documents": {
+      "main": [
+        [
+          {
+            "node": "Delete Agent Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Agent Document": {
+      "main": [
+        [
+          {
+            "node": "Execute Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Agent": {
+      "main": [
+        [
+          {
+            "node": "Agent Executions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent Executions": {
+      "main": [
+        [
+          {
+            "node": "Execution Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execution Stats": {
+      "main": [
+        [
+          {
+            "node": "Delete Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Agent": {
+      "main": [
+        [
+          {
+            "node": "Update User Password",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update User Password": {
+      "main": [
+        [
+          {
+            "node": "Login (Updated Password)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login (Updated Password)": {
+      "main": [
+        [
+          {
+            "node": "Update API Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "description": "Automated regression workflow running each LangChain API endpoint via dedicated HTTP Request nodes."
+  }
+}
