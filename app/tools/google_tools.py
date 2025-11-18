@@ -1016,7 +1016,7 @@ class GoogleSheetsTool(BaseTool):
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["read", "write", "create"],
+                        "enum": ["read", "write", "create", "list_spreadsheets"],
                         "description": "Action to perform (optional; inferred from other fields when omitted)"
                     },
                     "spreadsheet_id": {
@@ -1034,6 +1034,15 @@ class GoogleSheetsTool(BaseTool):
                     "title": {
                         "type": "string",
                         "description": "Sheet title (required for create action)"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of spreadsheets to list (list_spreadsheets action)",
+                        "default": 20
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Optional case-insensitive name filter when listing spreadsheets."
                     }
                 },
                 "required": []
@@ -1065,8 +1074,9 @@ class GoogleSheetsTool(BaseTool):
             parameters["action"] = action
         elif not action:
             raise ValueError(
-                "Missing required parameter 'action'. Provide 'read', 'write', or 'create', or include fields such as "
-                "'title' for creating a sheet, 'values' for writing, or 'spreadsheet_id' for reading."
+                "Missing required parameter 'action'. Provide 'read', 'write', 'create', or 'list_spreadsheets', "
+                "or include fields such as 'title' for creating a sheet, 'values' for writing, or 'spreadsheet_id' "
+                "for reading."
             )
 
         required_scopes = self._required_scopes_for_action(action)
@@ -1096,9 +1106,11 @@ class GoogleSheetsTool(BaseTool):
                     if not parameters.get("title"):
                         raise ValueError("Google Sheets create action requires 'title'.")
                     return self._create_sheet(service, parameters)
+                elif action == "list_spreadsheets":
+                    return self._list_spreadsheets(credentials, parameters)
                 else:
                     raise ValueError(
-                        "Unknown Google Sheets action. Supported actions are 'read', 'write', and 'create'."
+                        "Unknown Google Sheets action. Supported actions are 'read', 'write', 'create', and 'list_spreadsheets'."
                     )
 
             except HttpError as exc:
@@ -1145,6 +1157,8 @@ class GoogleSheetsTool(BaseTool):
             return GoogleSheetsWriteTool.REQUIRED_SCOPES
         if action == "create":
             return GoogleSheetsCreateSpreadsheetTool.REQUIRED_SCOPES
+        if action == "list_spreadsheets":
+            return GoogleSheetsListSpreadsheetsTool.REQUIRED_SCOPES
         return GOOGLE_TOOL_SCOPE_MAP.get("google_sheets", [])
 
     @staticmethod
@@ -1206,6 +1220,44 @@ class GoogleSheetsTool(BaseTool):
             "spreadsheet_id": result["spreadsheetId"],
             "title": title,
             "url": result["spreadsheetUrl"]
+        }
+
+    def _list_spreadsheets(self, credentials: Credentials, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        drive_service = build("drive", "v3", credentials=credentials, cache_discovery=False)
+        max_results_raw = parameters.get("max_results", 20)
+        try:
+            max_results = int(max_results_raw)
+        except (TypeError, ValueError):
+            max_results = 20
+        max_results = max(1, min(max_results, 100))
+
+        query_parts = ["mimeType='application/vnd.google-apps.spreadsheet'", "trashed = false"]
+        name_filter = parameters.get("query")
+        if name_filter:
+            sanitized = str(name_filter).replace("'", r"\'")
+            query_parts.append(f"name contains '{sanitized}'")
+
+        response = drive_service.files().list(
+            q=" and ".join(query_parts),
+            pageSize=max_results,
+            fields="files(id, name, webViewLink, owners(displayName,emailAddress), modifiedTime)",
+        ).execute()
+
+        spreadsheets = []
+        for file_info in response.get("files", []):
+            spreadsheets.append(
+                {
+                    "id": file_info.get("id"),
+                    "name": file_info.get("name"),
+                    "url": file_info.get("webViewLink"),
+                    "owners": file_info.get("owners", []),
+                    "modified_time": file_info.get("modifiedTime"),
+                }
+            )
+
+        return {
+            "count": len(spreadsheets),
+            "spreadsheets": spreadsheets,
         }
 
 
@@ -1898,6 +1950,34 @@ class GoogleSheetsCreateSpreadsheetTool(GoogleSheetsActionTool):
         )
 
 
+class GoogleSheetsListSpreadsheetsTool(GoogleSheetsActionTool):
+    REQUIRED_SCOPES = [
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="google_sheets_list_spreadsheets",
+            description="List accessible Google Spreadsheets for the authenticated user.",
+            action="list_spreadsheets",
+            schema={
+                "type": "object",
+                "properties": {
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of spreadsheets to return (1-100).",
+                        "default": 20,
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Case-insensitive partial name filter.",
+                    },
+                },
+                "required": [],
+            },
+        )
+
+
 class GoogleCalendarActionTool(BaseTool):
     """Wrapper for Calendar sub-tools leveraging GoogleCalendarTool implementation."""
 
@@ -2035,6 +2115,424 @@ class GoogleCalendarGetEventTool(GoogleCalendarActionTool):
         )
 
 
+class GoogleDocsTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="google_docs",
+            description="List, read, and edit Google Docs documents.",
+            schema={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list_documents", "get_document", "append_text", "create_document"],
+                        "description": "Docs action to perform."
+                    },
+                    "document_id": {
+                        "type": "string",
+                        "description": "Target document ID (get_document/append_text)."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Text to insert or append."
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Document title (create_document)."
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum docs to list (list_documents).",
+                        "default": 20
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Optional case-insensitive name filter when listing docs."
+                    }
+                },
+                "required": []
+            }
+        )
+
+    def execute(
+        self,
+        parameters: Dict[str, Any],
+        user_id: str,
+        auth_service: AuthService
+    ) -> Dict[str, Any]:
+        from app.tools.google_tools import GmailTool
+
+        gmail_tool = GmailTool()
+        credentials = gmail_tool.get_credentials(user_id, auth_service)
+        parameters = dict(parameters or {})
+
+        action_raw = parameters.get("action")
+        inferred_action = self._infer_action(parameters)
+        action = (action_raw or inferred_action or "").strip().lower()
+
+        if action_raw and action_raw.strip():
+            action = action_raw.strip().lower()
+            parameters["action"] = action
+        elif inferred_action:
+            action = inferred_action
+            parameters["action"] = action
+        else:
+            raise ValueError(
+                "Missing required parameter 'action'. Provide 'list_documents', 'get_document', 'create_document', or 'append_text'."
+            )
+
+        required_scopes = self._required_scopes_for_action(action)
+        if required_scopes and self._missing_scopes(credentials, required_scopes):
+            raise Exception(
+                "Google account is missing Google Docs permissions. "
+                f"Reconnect Google with scopes: {', '.join(required_scopes)}."
+            )
+
+        last_error: Optional[HttpError] = None
+        for attempt in range(2):
+            try:
+                docs_service = build('docs', 'v1', credentials=credentials, cache_discovery=False)
+
+                if action == "get_document":
+                    if not parameters.get("document_id"):
+                        raise ValueError("Google Docs get_document action requires 'document_id'.")
+                    return self._get_document(docs_service, parameters["document_id"])
+                if action == "append_text":
+                    if not parameters.get("document_id"):
+                        raise ValueError("Google Docs append_text action requires 'document_id'.")
+                    if not parameters.get("content"):
+                        raise ValueError("Google Docs append_text action requires 'content'.")
+                    return self._append_text(docs_service, parameters["document_id"], str(parameters["content"]))
+                if action == "create_document":
+                    if not parameters.get("title"):
+                        raise ValueError("Google Docs create_document action requires 'title'.")
+                    return self._create_document(docs_service, credentials, parameters)
+                if action == "list_documents":
+                    return self._list_documents(credentials, parameters)
+
+                raise ValueError(
+                    "Unknown Google Docs action. Supported actions are 'list_documents', 'get_document', 'append_text', and 'create_document'."
+                )
+            except HttpError as exc:
+                last_error = exc
+                status_code = getattr(getattr(exc, "resp", None), "status", None)
+                if status_code == 401 and attempt == 0:
+                    refreshed = auth_service.refresh_google_token(user_id)
+                    if not refreshed:
+                        raise Exception(
+                            "Google authentication expired. Reconnect your Google account to continue using Google Docs."
+                        )
+                    credentials = gmail_tool.get_credentials(user_id, auth_service)
+                    continue
+
+                if status_code == 403 and "insufficientPermissions" in str(exc):
+                    raise Exception(
+                        "Google Docs permission denied. Reconnect Google and grant document scopes "
+                        f"({', '.join(required_scopes or ['https://www.googleapis.com/auth/documents'])})."
+                    )
+                raise Exception(f"Google Docs API error: {exc}")
+
+        if last_error:
+            raise Exception(f"Google Docs API error: {last_error}")
+
+        raise Exception("Google Docs tool execution failed unexpectedly.")
+
+    def _infer_action(self, parameters: Dict[str, Any]) -> Optional[str]:
+        if parameters.get("action"):
+            return None
+        if parameters.get("document_id") and parameters.get("content"):
+            return "append_text"
+        if parameters.get("document_id"):
+            return "get_document"
+        if parameters.get("title"):
+            return "create_document"
+        return None
+
+    def _required_scopes_for_action(self, action: str) -> List[str]:
+        if action == "get_document":
+            return GoogleDocsGetDocumentTool.REQUIRED_SCOPES
+        if action == "append_text":
+            return GoogleDocsAppendTextTool.REQUIRED_SCOPES
+        if action == "create_document":
+            return GoogleDocsCreateDocumentTool.REQUIRED_SCOPES
+        if action == "list_documents":
+            return GoogleDocsListDocumentsTool.REQUIRED_SCOPES
+        return GOOGLE_TOOL_SCOPE_MAP.get("google_docs", [])
+
+    @staticmethod
+    def _missing_scopes(credentials: Credentials, required: List[str]) -> List[str]:
+        current = set(credentials.scopes or [])
+        return [scope for scope in required if scope not in current]
+
+    def _get_document(self, docs_service, document_id: str) -> Dict[str, Any]:
+        document = docs_service.documents().get(documentId=document_id).execute()
+        text_content = self._extract_text(document.get("body", {}))
+        return {
+            "document_id": document.get("documentId"),
+            "title": document.get("title"),
+            "text": text_content,
+            "revision_id": document.get("revisionId"),
+        }
+
+    def _append_text(self, docs_service, document_id: str, text: str) -> Dict[str, Any]:
+        document = docs_service.documents().get(documentId=document_id).execute()
+        end_index = self._resolve_insertion_index(document)
+        insert_text = text if text.endswith("\n") else f"{text}\n"
+        requests = [
+            {
+                "insertText": {
+                    "location": {"index": end_index},
+                    "text": insert_text,
+                }
+            }
+        ]
+        docs_service.documents().batchUpdate(
+            documentId=document_id,
+            body={"requests": requests},
+        ).execute()
+        return {
+            "document_id": document_id,
+            "inserted_characters": len(insert_text),
+            "new_end_index": end_index + len(insert_text),
+        }
+
+    def _create_document(self, docs_service, credentials: Credentials, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        drive_service = build("drive", "v3", credentials=credentials, cache_discovery=False)
+        file_metadata = {
+            "name": parameters["title"],
+            "mimeType": "application/vnd.google-apps.document",
+        }
+        drive_file = drive_service.files().create(
+            body=file_metadata,
+            fields="id, name, webViewLink"
+        ).execute()
+
+        document_id = drive_file.get("id")
+        if not document_id:
+            raise Exception("Failed to obtain Google Docs file identifier from Drive.")
+
+        content = parameters.get("content")
+        if content:
+            insert_text = content if content.endswith("\n") else f"{content}\n"
+            docs_service.documents().batchUpdate(
+                documentId=document_id,
+                body={
+                    "requests": [
+                        {
+                            "insertText": {
+                                "location": {"index": 1},
+                                "text": insert_text,
+                            }
+                        }
+                    ]
+                },
+            ).execute()
+
+        document = docs_service.documents().get(documentId=document_id).execute()
+
+        return {
+            "document_id": document_id,
+            "title": document.get("title") or drive_file.get("name"),
+            "url": drive_file.get("webViewLink") or f"https://docs.google.com/document/d/{document_id}/edit",
+        }
+
+    def _list_documents(self, credentials: Credentials, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        drive_service = build("drive", "v3", credentials=credentials, cache_discovery=False)
+        max_results_raw = parameters.get("max_results", 20)
+        try:
+            max_results = int(max_results_raw)
+        except (TypeError, ValueError):
+            max_results = 20
+        max_results = max(1, min(max_results, 100))
+
+        query_parts = ["mimeType='application/vnd.google-apps.document'", "trashed = false"]
+        if parameters.get("query"):
+            sanitized = str(parameters["query"]).replace("'", r"\'")
+            query_parts.append(f"name contains '{sanitized}'")
+
+        response = drive_service.files().list(
+            q=" and ".join(query_parts),
+            pageSize=max_results,
+            fields="files(id, name, webViewLink, owners(displayName,emailAddress), modifiedTime)",
+        ).execute()
+
+        documents = []
+        for file_info in response.get("files", []):
+            documents.append(
+                {
+                    "id": file_info.get("id"),
+                    "name": file_info.get("name"),
+                    "url": file_info.get("webViewLink"),
+                    "owners": file_info.get("owners", []),
+                    "modified_time": file_info.get("modifiedTime"),
+                }
+            )
+
+        return {
+            "count": len(documents),
+            "documents": documents,
+        }
+
+    @staticmethod
+    def _extract_text(body: Dict[str, Any]) -> str:
+        fragments: List[str] = []
+        for content in body.get("content", []):
+            paragraph = content.get("paragraph")
+            if not paragraph:
+                continue
+            for element in paragraph.get("elements", []):
+                text_run = element.get("textRun")
+                if text_run and text_run.get("content"):
+                    fragments.append(text_run["content"])
+        return "".join(fragments).strip()
+
+    @staticmethod
+    def _resolve_insertion_index(document: Dict[str, Any]) -> int:
+        body = document.get("body", {})
+        content = body.get("content", [])
+        if not content:
+            return 1
+        last_section = content[-1]
+        end_index = last_section.get("endIndex")
+        if isinstance(end_index, int):
+            return max(1, end_index - 1)
+        return 1
+
+
+class GoogleDocsActionTool(BaseTool):
+    REQUIRED_SCOPES: List[str] = []
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        description: str,
+        schema: Dict[str, Any],
+        action: str,
+    ):
+        super().__init__(name=name, description=description, schema=schema)
+        self._action = action
+        self._delegate = GoogleDocsTool()
+
+    def execute(
+        self,
+        parameters: Dict[str, Any],
+        user_id: str,
+        auth_service: AuthService
+    ) -> Dict[str, Any]:
+        payload = dict(parameters or {})
+        payload.setdefault("action", self._action)
+        return self._delegate.execute(payload, user_id, auth_service)
+
+
+class GoogleDocsListDocumentsTool(GoogleDocsActionTool):
+    REQUIRED_SCOPES = [
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="google_docs_list_documents",
+            description="List accessible Google Docs documents.",
+            action="list_documents",
+            schema={
+                "type": "object",
+                "properties": {
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum documents to return (1-100).",
+                        "default": 20,
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Case-insensitive partial name filter.",
+                    },
+                },
+                "required": [],
+            },
+        )
+
+
+class GoogleDocsGetDocumentTool(GoogleDocsActionTool):
+    REQUIRED_SCOPES = [
+        "https://www.googleapis.com/auth/documents.readonly",
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="google_docs_get_document",
+            description="Fetch the full text of a Google Doc.",
+            action="get_document",
+            schema={
+                "type": "object",
+                "properties": {
+                    "document_id": {
+                        "type": "string",
+                        "description": "Document ID to fetch.",
+                    }
+                },
+                "required": ["document_id"],
+            },
+        )
+
+
+class GoogleDocsCreateDocumentTool(GoogleDocsActionTool):
+    REQUIRED_SCOPES = [
+        "https://www.googleapis.com/auth/documents",
+        "https://www.googleapis.com/auth/drive.file",
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="google_docs_create_document",
+            description="Create a Google Doc (optionally with initial content).",
+            action="create_document",
+            schema={
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Document title.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Optional initial text content.",
+                    },
+                },
+                "required": ["title"],
+            },
+        )
+
+
+class GoogleDocsAppendTextTool(GoogleDocsActionTool):
+    REQUIRED_SCOPES = [
+        "https://www.googleapis.com/auth/documents",
+        "https://www.googleapis.com/auth/drive.file",
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="google_docs_append_text",
+            description="Append rich text content to the end of a Google Doc.",
+            action="append_text",
+            schema={
+                "type": "object",
+                "properties": {
+                    "document_id": {
+                        "type": "string",
+                        "description": "Document ID to update.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Text to append to the document.",
+                    },
+                },
+                "required": ["document_id", "content"],
+            },
+        )
+
+
 GOOGLE_TOOL_SCOPE_MAP: Dict[str, List[str]] = {
     "gmail": [
         "https://www.googleapis.com/auth/gmail.readonly",
@@ -2058,6 +2556,7 @@ GOOGLE_TOOL_SCOPE_MAP: Dict[str, List[str]] = {
     "google_sheets_get_values": GoogleSheetsReadTool.REQUIRED_SCOPES,
     "google_sheets_update_values": GoogleSheetsWriteTool.REQUIRED_SCOPES,
     "google_sheets_create_spreadsheet": GoogleSheetsCreateSpreadsheetTool.REQUIRED_SCOPES,
+    "google_sheets_list_spreadsheets": GoogleSheetsListSpreadsheetsTool.REQUIRED_SCOPES,
     "google_calendar": [
         "https://www.googleapis.com/auth/calendar",
         "https://www.googleapis.com/auth/calendar.events",
@@ -2066,4 +2565,14 @@ GOOGLE_TOOL_SCOPE_MAP: Dict[str, List[str]] = {
     "google_calendar_list_events": GoogleCalendarListEventsTool.REQUIRED_SCOPES,
     "google_calendar_create_event": GoogleCalendarCreateEventTool.REQUIRED_SCOPES,
     "google_calendar_get_event": GoogleCalendarGetEventTool.REQUIRED_SCOPES,
+    "google_docs": [
+        "https://www.googleapis.com/auth/documents",
+        "https://www.googleapis.com/auth/documents.readonly",
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+    ],
+    "google_docs_list_documents": GoogleDocsListDocumentsTool.REQUIRED_SCOPES,
+    "google_docs_get_document": GoogleDocsGetDocumentTool.REQUIRED_SCOPES,
+    "google_docs_create_document": GoogleDocsCreateDocumentTool.REQUIRED_SCOPES,
+    "google_docs_append_text": GoogleDocsAppendTextTool.REQUIRED_SCOPES,
 }

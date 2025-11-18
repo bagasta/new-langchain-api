@@ -18,10 +18,16 @@ from app.tools.google_tools import (
     GoogleSheetsReadTool,
     GoogleSheetsWriteTool,
     GoogleSheetsCreateSpreadsheetTool,
+    GoogleSheetsListSpreadsheetsTool,
     GoogleCalendarTool,
     GoogleCalendarListEventsTool,
     GoogleCalendarCreateEventTool,
     GoogleCalendarGetEventTool,
+    GoogleDocsTool,
+    GoogleDocsListDocumentsTool,
+    GoogleDocsGetDocumentTool,
+    GoogleDocsCreateDocumentTool,
+    GoogleDocsAppendTextTool,
     GOOGLE_TOOL_SCOPE_MAP,
 )
 from app.tools.file_tools import (
@@ -53,10 +59,16 @@ class ToolService:
             GoogleSheetsReadTool(),
             GoogleSheetsWriteTool(),
             GoogleSheetsCreateSpreadsheetTool(),
+            GoogleSheetsListSpreadsheetsTool(),
             GoogleCalendarTool(),
             GoogleCalendarListEventsTool(),
             GoogleCalendarCreateEventTool(),
             GoogleCalendarGetEventTool(),
+            GoogleDocsTool(),
+            GoogleDocsListDocumentsTool(),
+            GoogleDocsGetDocumentTool(),
+            GoogleDocsCreateDocumentTool(),
+            GoogleDocsAppendTextTool(),
             CSVTool(),
             JSONTool(),
             FileListTool(),
@@ -115,7 +127,7 @@ class ToolService:
             tool = Tool(
                 name=tool_data.name,
                 description=tool_data.description,
-                schema=tool_data.schema.model_dump(),
+                schema=tool_data.schema_definition.model_dump(),
                 type=tool_data.type,
             )
 
@@ -179,8 +191,8 @@ class ToolService:
             if tool_data.description is not None:
                 tool.description = tool_data.description
 
-            if tool_data.schema is not None:
-                tool.schema = tool_data.schema.model_dump()
+            if tool_data.schema_definition is not None:
+                tool.schema = tool_data.schema_definition.model_dump()
 
             self.db.commit()
             self.db.refresh(tool)

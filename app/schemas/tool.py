@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Dict, Any, List
 from uuid import UUID
 from datetime import datetime
@@ -12,28 +12,31 @@ class ToolSchema(BaseModel):
 
 
 class ToolCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
-    schema: ToolSchema
+    schema_definition: ToolSchema = Field(..., alias="schema")
     type: ToolType = ToolType.CUSTOM
 
 
 class ToolUpdate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
-    schema: Optional[ToolSchema] = None
+    schema_definition: Optional[ToolSchema] = Field(default=None, alias="schema")
 
 
 class ToolResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
     id: UUID
     name: str
     description: Optional[str]
-    schema: Dict[str, Any]
+    schema_definition: Dict[str, Any] = Field(alias="schema")
     type: ToolType
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class ToolExecuteRequest(BaseModel):
