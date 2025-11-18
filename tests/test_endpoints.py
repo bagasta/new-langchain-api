@@ -186,6 +186,9 @@ def test_tool_endpoints(client, tmp_path):
     tools = list_resp.json()
     assert tools, "Expected built-in tools to be initialised"
 
+    tool_names = {tool["name"] for tool in tools}
+    assert {"file_list", "docx", "spreadsheet"}.issubset(tool_names)
+
     builtin_tools_resp = client.get(
         f"{API_PREFIX}/tools/", headers=headers, params={"tool_type": "builtin"}
     )

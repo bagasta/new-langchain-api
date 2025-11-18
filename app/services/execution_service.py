@@ -1,7 +1,15 @@
 import json
 import re
 import time
-from typing import Dict, Any, Optional, List, Mapping, Iterable, Sequence
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+)
 from uuid import UUID, uuid4
 from sqlalchemy.orm import Session
 from sqlalchemy import inspect, text
@@ -31,7 +39,8 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.tools import Tool as LangChainTool, BaseTool
+from langchain_core.tools import StructuredTool, Tool as LangChainTool, BaseTool
+from pydantic import BaseModel, ConfigDict, create_model
 from app.tools.google_tools import GOOGLE_TOOL_SCOPE_MAP
 
 GOOGLE_WORKSPACE_TOOL_NAMES = {
@@ -787,6 +796,68 @@ class ExecutionService:
             except Exception:  # noqa: BLE001
                 pass
 
+    @staticmethod
+    def _json_schema_to_type(property_schema: Dict[str, Any]) -> Any:
+        """Map a JSON-schema-ish field definition to a Python type for Pydantic."""
+        if not property_schema:
+            return Any
+
+        schema_type = property_schema.get("type")
+        if schema_type == "string":
+            return str
+        if schema_type == "integer":
+            return int
+        if schema_type == "number":
+            return float
+        if schema_type == "boolean":
+            return bool
+        if schema_type == "array":
+            item_type = ExecutionService._json_schema_to_type(
+                property_schema.get("items") or {}
+            )
+            return List[item_type]  # type: ignore[list-item]
+        if schema_type == "object":
+            return Dict[str, Any]
+
+        # Fallback to string for unknown/omitted types
+        return Any
+
+    def _build_args_schema(self, tool_record: Tool) -> Optional[type[BaseModel]]:
+        """Build a Pydantic args schema from the tool's stored JSON schema.
+
+        Providing an args_schema lets LangChain register a structured tool,
+        which prevents the model from treating it as a single-input string tool.
+        """
+        schema = tool_record.schema or {}
+        if isinstance(schema, str):
+            try:
+                schema = json.loads(schema)
+            except Exception:  # noqa: BLE001
+                schema = {}
+        properties: Dict[str, Any] = schema.get("properties") or {}
+        if not properties:
+            return None
+
+        required = set(schema.get("required") or [])
+        fields: Dict[str, tuple[Any, Any]] = {}
+
+        for name, prop in properties.items():
+            python_type = self._json_schema_to_type(prop or {})
+            default = prop.get("default", None)
+            if name in required and default is None:
+                fields[name] = (python_type, ...)
+            else:
+                fields[name] = (python_type, default)
+
+        class _ArgsBase(BaseModel):
+            model_config = ConfigDict(extra="allow")
+
+        model_name = f"{tool_record.name.title().replace('_', '')}Args"
+        try:
+            return create_model(model_name, __base__=_ArgsBase, **fields)
+        except Exception:  # noqa: BLE001
+            return None
+
     def _create_langchain_tool(self, tool_record: Tool, user_id: UUID):
         """Create a LangChain tool from our tool system"""
         tool_id = str(tool_record.id)
@@ -837,11 +908,21 @@ class ExecutionService:
               "matching the tool schema."
         )
 
-        return LangChainTool.from_function(
-            func=tool_func,
-            name=tool_record.name,
-            description=description,
-        )
+        args_schema = self._build_args_schema(tool_record)
+
+        common_kwargs = {
+            "func": tool_func,
+            "name": tool_record.name,
+            "description": description,
+        }
+
+        if args_schema:
+            return StructuredTool.from_function(
+                args_schema=args_schema,
+                **common_kwargs,
+            )
+
+        return LangChainTool.from_function(**common_kwargs)
 
     def _parse_freeform_input(self, raw: str) -> Optional[Dict[str, Any]]:
         parts = re.split(r'[;\n,]+', raw)

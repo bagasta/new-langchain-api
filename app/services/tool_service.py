@@ -24,7 +24,13 @@ from app.tools.google_tools import (
     GoogleCalendarGetEventTool,
     GOOGLE_TOOL_SCOPE_MAP,
 )
-from app.tools.file_tools import CSVTool, JSONTool, FileListTool
+from app.tools.file_tools import (
+    CSVTool,
+    DocxTool,
+    FileListTool,
+    JSONTool,
+    SpreadsheetTool,
+)
 from app.core.logging import logger
 
 
@@ -54,6 +60,8 @@ class ToolService:
             CSVTool(),
             JSONTool(),
             FileListTool(),
+            DocxTool(),
+            SpreadsheetTool(),
         ]
 
         created = False
@@ -232,7 +240,9 @@ class ToolService:
             "google_calendar_get_event": GoogleCalendarGetEventTool,
             "csv": CSVTool,
             "json": JSONTool,
-            "file_list": FileListTool
+            "file_list": FileListTool,
+            "docx": DocxTool,
+            "spreadsheet": SpreadsheetTool,
         }
 
         tool_class = tool_map.get(tool_name)

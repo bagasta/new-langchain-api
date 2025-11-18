@@ -10,6 +10,30 @@ export TOKEN="paste-your-access-token-here"
 
 `$TOKEN` should be the `access_token` value returned by the login or API key generation endpoints. Use `$BASE_URL$API_PREFIX` as the base for all versioned endpoints and include `-H "Authorization: Bearer $TOKEN"` on routes that require authentication.
 
+## Frontend Quick Reference
+
+- **Headers:** `Authorization: Bearer <token>` for protected routes, `Content-Type: application/json` for JSON bodies.
+- **Auth responses:** `/auth/login` and `/auth/api-key` return `{ "access_token": "...", "token_type": "bearer", "expires_at": "<iso8601>"? }`.
+- **Agent execute request:** `POST /agents/{agent_id}/execute` with `{ "input": "<user text>", "parameters": { ... }, "session_id": "<optional>" }`.
+- **Agent execute response:** 
+  ```json
+  {
+    "id": "execution-id",
+    "status": "COMPLETED|FAILED|RUNNING",
+    "output": {
+      "output": "final text",
+      "tools_used": ["google_calendar", "web_search"],
+      "intermediate_steps": [
+        {"tool": "google_calendar_list_events", "observation": "...", "tool_call_id": "..."}
+      ],
+      "execution_time": 1.23
+    },
+    "error_message": null
+  }
+  ```
+- **Google OAuth hint:** Call `GET /auth/google` to get `auth_url` and `auth_state` if the user hasn’t linked Google yet. Frontend should open `auth_url` in a new tab, then retry the tool call after redirect completes.
+- **CORS:** Origins are taken from server settings—when running locally the defaults include `http://localhost:3000` and `http://localhost:8000`.
+
 ## Updated Authentication Flow
 
 The API now uses a two-step authentication process:
@@ -475,7 +499,42 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
           }
         }'
   ```
-  The execution payload is routed to the registered tool. Built-in tools include file utilities (`csv`, `json`, `file_list`) in addition to Google Workspace integrations.
+  The execution payload is routed to the registered tool. Built-in tools include file utilities (`csv`, `json`, `file_list`, `docx`, `spreadsheet`) in addition to Google Workspace integrations.
+
+### DOCX & Spreadsheet helpers
+
+- **Read a DOCX file**
+  ```bash
+  curl -X POST "$BASE_URL$API_PREFIX/tools/execute" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+          "tool_id": "docx",
+          "parameters": {
+            "action": "read",
+            "file_path": "/data/notes/summary.docx"
+          }
+        }'
+  ```
+
+- **Write spreadsheet rows to `Sheet1`**
+  ```bash
+  curl -X POST "$BASE_URL$API_PREFIX/tools/execute" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+          "tool_id": "spreadsheet",
+          "parameters": {
+            "action": "write",
+            "file_path": "/data/reports/metrics.xlsx",
+            "sheet_name": "Sheet1",
+            "data": [
+              {"metric": "signups", "value": 120},
+              {"metric": "churn", "value": 4}
+            ]
+          }
+        }'
+  ```
 
 ## Document Ingestion (`$API_PREFIX/agents/{agent_id}/documents`)
 

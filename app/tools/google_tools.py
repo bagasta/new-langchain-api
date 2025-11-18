@@ -1045,7 +1045,7 @@ class GoogleSheetsTool(BaseTool):
 
         gmail_tool = GmailTool()
         credentials = gmail_tool.get_credentials(user_id, auth_service)
-        service = build('sheets', 'v4', credentials=credentials)
+        service = build('sheets', 'v4', credentials=credentials, cache_discovery=False)
         parameters = dict(parameters)
         if parameters.get("spreadsheetId") and not parameters.get("spreadsheet_id"):
             parameters["spreadsheet_id"] = parameters["spreadsheetId"]
@@ -1069,30 +1069,62 @@ class GoogleSheetsTool(BaseTool):
                 "'title' for creating a sheet, 'values' for writing, or 'spreadsheet_id' for reading."
             )
 
-        try:
-            if action == "read":
-                if not parameters.get("spreadsheet_id"):
-                    raise ValueError("Google Sheets read action requires 'spreadsheet_id'.")
-                return self._read_sheet(service, parameters)
-            elif action == "write":
-                if not parameters.get("spreadsheet_id"):
-                    raise ValueError("Google Sheets write action requires 'spreadsheet_id'.")
-                if parameters.get("values") is None:
-                    raise ValueError("Google Sheets write action requires 'values'.")
-                if not parameters.get("range"):
-                    raise ValueError("Google Sheets write action requires 'range'.")
-                return self._write_sheet(service, parameters)
-            elif action == "create":
-                if not parameters.get("title"):
-                    raise ValueError("Google Sheets create action requires 'title'.")
-                return self._create_sheet(service, parameters)
-            else:
-                raise ValueError(
-                    "Unknown Google Sheets action. Supported actions are 'read', 'write', and 'create'."
-                )
+        required_scopes = self._required_scopes_for_action(action)
+        last_error: Optional[HttpError] = None
 
-        except Exception as e:
-            raise Exception(f"Google Sheets API error: {e}")
+        for attempt in range(2):
+            try:
+                if required_scopes and self._missing_scopes(credentials, required_scopes):
+                    raise Exception(
+                        "Google account is missing Google Sheets permissions. "
+                        f"Reconnect Google with scopes: {', '.join(required_scopes)}."
+                    )
+
+                if action == "read":
+                    if not parameters.get("spreadsheet_id"):
+                        raise ValueError("Google Sheets read action requires 'spreadsheet_id'.")
+                    return self._read_sheet(service, parameters)
+                elif action == "write":
+                    if not parameters.get("spreadsheet_id"):
+                        raise ValueError("Google Sheets write action requires 'spreadsheet_id'.")
+                    if parameters.get("values") is None:
+                        raise ValueError("Google Sheets write action requires 'values'.")
+                    if not parameters.get("range"):
+                        raise ValueError("Google Sheets write action requires 'range'.")
+                    return self._write_sheet(service, parameters)
+                elif action == "create":
+                    if not parameters.get("title"):
+                        raise ValueError("Google Sheets create action requires 'title'.")
+                    return self._create_sheet(service, parameters)
+                else:
+                    raise ValueError(
+                        "Unknown Google Sheets action. Supported actions are 'read', 'write', and 'create'."
+                    )
+
+            except HttpError as exc:
+                last_error = exc
+                status_code = getattr(getattr(exc, "resp", None), "status", None)
+                if status_code == 401 and attempt == 0:
+                    refreshed = auth_service.refresh_google_token(user_id)
+                    if not refreshed:
+                        raise Exception(
+                            "Google authentication expired. Reconnect your Google account to continue using Google Sheets."
+                        )
+                    credentials = gmail_tool.get_credentials(user_id, auth_service)
+                    service = build('sheets', 'v4', credentials=credentials, cache_discovery=False)
+                    continue
+
+                if status_code == 403 and "insufficientPermissions" in str(exc):
+                    raise Exception(
+                        "Google Sheets permission denied. Reconnect Google and grant spreadsheet scopes "
+                        f"({', '.join(required_scopes or ['https://www.googleapis.com/auth/spreadsheets'])})."
+                    )
+                raise Exception(f"Google Sheets API error: {exc}")
+
+        if last_error:
+            raise Exception(f"Google Sheets API error: {last_error}")
+
+        raise Exception("Google Sheets tool execution failed unexpectedly.")
 
     def _infer_action(self, parameters: Dict[str, Any]) -> Optional[str]:
         if parameters.get("title"):
@@ -1105,6 +1137,20 @@ class GoogleSheetsTool(BaseTool):
             return "read"
 
         return None
+
+    def _required_scopes_for_action(self, action: str) -> List[str]:
+        if action == "read":
+            return GoogleSheetsReadTool.REQUIRED_SCOPES
+        if action == "write":
+            return GoogleSheetsWriteTool.REQUIRED_SCOPES
+        if action == "create":
+            return GoogleSheetsCreateSpreadsheetTool.REQUIRED_SCOPES
+        return GOOGLE_TOOL_SCOPE_MAP.get("google_sheets", [])
+
+    @staticmethod
+    def _missing_scopes(credentials: Credentials, required: List[str]) -> List[str]:
+        current = set(credentials.scopes or [])
+        return [scope for scope in required if scope not in current]
 
     def _read_sheet(self, service, parameters: Dict[str, Any]) -> Dict[str, Any]:
         spreadsheet_id = parameters["spreadsheet_id"]
@@ -1252,29 +1298,115 @@ class GoogleCalendarTool(BaseTool):
 
         gmail_tool = GmailTool()
         credentials = gmail_tool.get_credentials(user_id, auth_service)
-        service = build('calendar', 'v3', credentials=credentials)
+        service = build('calendar', 'v3', credentials=credentials, cache_discovery=False)
+        required_scopes = self._scopes_for_action(action)
+        last_error: Optional[HttpError] = None
 
-        try:
-            if action == "list_events":
-                return self._list_events(service, calendar_id, parameters)
-            if action == "create_event":
-                return self._create_event(service, calendar_id, parameters)
-            if action == "get_event":
-                event_id = parameters.get("event_id")
-                if not event_id:
-                    raise ValueError("Google Calendar get_event action requires 'event_id'.")
-                return self._get_event(service, calendar_id, event_id)
-        except HttpError as exc:
-            raise Exception(f"Google Calendar API error: {exc}")
+        for attempt in range(2):
+            try:
+                if required_scopes and self._missing_scopes(credentials, required_scopes):
+                    raise Exception(
+                        "Google account is missing Calendar permission. "
+                        f"Reconnect Google with scopes: {', '.join(required_scopes)}."
+                    )
+
+                if action == "list_events":
+                    return self._list_events(service, calendar_id, parameters)
+                if action == "create_event":
+                    return self._create_event(service, calendar_id, parameters)
+                if action == "get_event":
+                    event_id = parameters.get("event_id")
+                    if not event_id:
+                        raise ValueError("Google Calendar get_event action requires 'event_id'.")
+                    return self._get_event(service, calendar_id, event_id)
+            except HttpError as exc:
+                last_error = exc
+                status_code = getattr(getattr(exc, "resp", None), "status", None)
+
+                if status_code == 401 and attempt == 0:
+                    refreshed = auth_service.refresh_google_token(user_id)
+                    if not refreshed:
+                        raise Exception(
+                            "Google authentication expired. Reconnect your Google account to continue using Google Calendar."
+                        )
+                    credentials = gmail_tool.get_credentials(user_id, auth_service)
+                    service = build('calendar', 'v3', credentials=credentials, cache_discovery=False)
+                    continue
+
+                if status_code == 403 and "insufficientPermissions" in str(exc):
+                    missing = self._missing_scopes(credentials, required_scopes)
+                    detail_scopes = ", ".join(sorted(missing)) if missing else ", ".join(required_scopes)
+                    raise Exception(
+                        "Google Calendar permission denied. Reconnect Google and grant calendar access "
+                        f"(missing scopes: {detail_scopes})."
+                    )
+
+                if status_code == 403:
+                    # Catch config/enablement issues (accessNotConfigured) with clearer guidance
+                    raise Exception(self._describe_calendar_http_error(exc))
+
+                raise Exception(f"Google Calendar API error: {exc}")
+
+        if last_error:
+            raise Exception(f"Google Calendar API error: {last_error}")
 
         raise ValueError("Unknown Google Calendar action. Supported actions are 'list_events', 'create_event', and 'get_event'.")
+
+    @staticmethod
+    def _describe_calendar_http_error(exc: HttpError) -> str:
+        """Return a concise, user-friendly error message for common Calendar API errors."""
+        try:
+            content = exc.content
+            if content:
+                payload = json.loads(content.decode("utf-8"))
+                error_obj = (payload.get("error") or {}) if isinstance(payload, dict) else {}
+                errors = error_obj.get("errors") or []
+                reason = errors[0].get("reason") if errors else None
+
+                if reason == "accessNotConfigured":
+                    # API not enabled in the linked Google Cloud project.
+                    help_link = errors[0].get("extendedHelp") if errors else None
+                    project_hint = error_obj.get("message")
+                    suffix = f" See: {help_link}" if help_link else ""
+                    return (
+                        "Google Calendar API is disabled for your Google Cloud project. "
+                        "Enable the Calendar API in the Google Cloud console for the OAuth client you configured."
+                        + (f" ({project_hint})" if project_hint else "")
+                        + suffix
+                    )
+
+                if reason == "insufficientPermissions":
+                    return (
+                        "Google account is missing Calendar permission. Reconnect Google with calendar scopes "
+                        "(https://www.googleapis.com/auth/calendar.events and https://www.googleapis.com/auth/calendar.readonly)."
+                    )
+
+        except Exception:
+            pass
+        return f"Google Calendar API error: {exc}"
 
     def _infer_action(self, parameters: Dict[str, Any]) -> Optional[str]:
         if parameters.get("event_id"):
             return "get_event"
-        if parameters.get("summary") or parameters.get("start") or parameters.get("end"):
+        has_start = bool(parameters.get("start"))
+        has_end = bool(parameters.get("end"))
+        # Only treat as create when we have a full time window (start & end) or an explicit summary + time.
+        if (has_start and has_end) or (parameters.get("summary") and has_start):
             return "create_event"
         return "list_events"
+
+    def _scopes_for_action(self, action: str) -> List[str]:
+        action_map = {
+            "list_events": GoogleCalendarListEventsTool.REQUIRED_SCOPES,
+            "create_event": GoogleCalendarCreateEventTool.REQUIRED_SCOPES,
+            "get_event": GoogleCalendarGetEventTool.REQUIRED_SCOPES,
+        }
+        return action_map.get(action, GOOGLE_TOOL_SCOPE_MAP.get("google_calendar", []))
+
+    @staticmethod
+    def _missing_scopes(credentials: Credentials, required: List[str]) -> List[str]:
+        current = set(credentials.scopes or [])
+        return [scope for scope in required if scope not in current]
 
     def _list_events(self, service, calendar_id: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
         max_results = int(parameters.get("max_results") or 10)
@@ -1313,8 +1445,11 @@ class GoogleCalendarTool(BaseTool):
         summary = parameters.get("summary") or "Untitled Event"
         start_value = parameters.get("start")
         end_value = parameters.get("end")
-        if not start_value or not end_value:
-            raise ValueError("Google Calendar create_event action requires 'start' and 'end' fields (RFC3339 or YYYY-MM-DD).")
+        if not start_value:
+            raise ValueError("Google Calendar create_event action requires 'start' (RFC3339 or YYYY-MM-DD).")
+        # If end is missing, auto-fill with start to create single-point/all-day events instead of erroring.
+        if not end_value:
+            end_value = start_value
 
         timezone = parameters.get("time_zone") or parameters.get("timezone")
         start_payload = self._build_event_time(start_value, timezone)

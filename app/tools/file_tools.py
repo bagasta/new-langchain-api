@@ -1,9 +1,10 @@
 import os
-import csv
 import json
-import pandas as pd
-from typing import Dict, Any, List, Optional, Union
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
+from docx import Document
 
 from app.tools.base import BaseTool
 
@@ -262,3 +263,225 @@ class FileListTool(BaseTool):
     def _matches_pattern(self, filename: str, pattern: str) -> bool:
         import fnmatch
         return fnmatch.fnmatch(filename, pattern)
+
+
+class DocxTool(BaseTool):
+    def __init__(self) -> None:
+        super().__init__(
+            name="docx",
+            description="Read, write, and append DOCX files",
+            schema={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["read", "write", "append"],
+                        "description": "Action to perform",
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to DOCX file",
+                    },
+                    "paragraphs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Paragraphs to write or append",
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Allow overwriting existing file when writing",
+                    },
+                },
+                "required": ["action", "file_path"],
+            },
+        )
+
+    def execute(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        action = parameters["action"]
+        file_path = parameters["file_path"]
+
+        try:
+            if action == "read":
+                return self._read_docx(file_path)
+            if action == "write":
+                return self._write_docx(file_path, parameters)
+            if action == "append":
+                return self._append_docx(file_path, parameters)
+            raise ValueError(f"Unknown action: {action}")
+        except Exception as exc:  # pragma: no cover - surfaced to caller
+            raise Exception(f"DOCX file error: {exc}")
+
+    def _read_docx(self, file_path: str) -> Dict[str, Any]:
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        document = Document(file_path)
+        paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
+        word_count = sum(len(p.split()) for p in paragraphs)
+
+        return {
+            "file_path": file_path,
+            "paragraphs": paragraphs,
+            "paragraph_count": len(paragraphs),
+            "word_count": word_count,
+        }
+
+    def _write_docx(self, file_path: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        paragraphs: Optional[List[str]] = parameters.get("paragraphs")
+        overwrite: bool = parameters.get("overwrite", True)
+
+        if not paragraphs:
+            raise ValueError("No paragraphs provided for writing")
+
+        path = Path(file_path)
+        if path.exists() and not overwrite:
+            raise FileExistsError(f"File already exists: {file_path}")
+
+        if path.parent:
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+        document = Document()
+        for paragraph in paragraphs:
+            document.add_paragraph(paragraph)
+        document.save(file_path)
+
+        return {
+            "file_path": file_path,
+            "paragraphs_written": len(paragraphs),
+            "overwrite": overwrite,
+        }
+
+    def _append_docx(self, file_path: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        paragraphs: Optional[List[str]] = parameters.get("paragraphs")
+
+        if not paragraphs:
+            raise ValueError("No paragraphs provided for appending")
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        document = Document(file_path)
+        for paragraph in paragraphs:
+            document.add_paragraph(paragraph)
+        document.save(file_path)
+
+        return {
+            "file_path": file_path,
+            "paragraphs_appended": len(paragraphs),
+        }
+
+
+class SpreadsheetTool(BaseTool):
+    def __init__(self) -> None:
+        super().__init__(
+            name="spreadsheet",
+            description="Read and write Excel spreadsheets (.xlsx/.xls)",
+            schema={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["read", "write"],
+                        "description": "Action to perform",
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to spreadsheet file",
+                    },
+                    "sheet_name": {
+                        "type": "string",
+                        "description": "Worksheet name (default first sheet)",
+                    },
+                    "data": {
+                        "type": "array",
+                        "description": "Rows to write (list of dicts or lists)",
+                    },
+                    "columns": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Column names when providing list-based rows",
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Allow overwriting an existing file",
+                    },
+                },
+                "required": ["action", "file_path"],
+            },
+        )
+
+    def execute(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        action = parameters["action"]
+        file_path = parameters["file_path"]
+
+        try:
+            if action == "read":
+                return self._read_spreadsheet(file_path, parameters)
+            if action == "write":
+                return self._write_spreadsheet(file_path, parameters)
+            raise ValueError(f"Unknown action: {action}")
+        except Exception as exc:  # pragma: no cover - surfaced to caller
+            raise Exception(f"Spreadsheet error: {exc}")
+
+    def _read_spreadsheet(self, file_path: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        suffix = Path(file_path).suffix.lower()
+        if suffix not in {".xlsx", ".xls", ".xlsm"}:
+            raise ValueError("Unsupported spreadsheet format; use .xlsx or .xls")
+
+        engine = "openpyxl" if suffix in {".xlsx", ".xlsm"} else None
+        sheet_name: Optional[str] = parameters.get("sheet_name")
+
+        excel_file = pd.ExcelFile(file_path, engine=engine)
+        resolved_sheet = sheet_name if sheet_name is not None else excel_file.sheet_names[0]
+
+        df = excel_file.parse(resolved_sheet)
+
+        return {
+            "file_path": file_path,
+            "sheet_name": resolved_sheet,
+            "data": df.to_dict("records"),
+            "columns": df.columns.tolist(),
+            "row_count": len(df),
+        }
+
+    def _write_spreadsheet(
+        self, file_path: str, parameters: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        if "data" not in parameters:
+            raise ValueError("No data provided for writing")
+
+        data = parameters["data"]
+        columns: Optional[List[str]] = parameters.get("columns")
+        sheet_name: str = parameters.get("sheet_name", "Sheet1")
+        overwrite: bool = parameters.get("overwrite", True)
+
+        path = Path(file_path)
+        if path.exists() and not overwrite:
+            raise FileExistsError(f"File already exists: {file_path}")
+
+        if path.parent:
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+        df = self._data_to_dataframe(data, columns)
+        df.to_excel(file_path, index=False, sheet_name=sheet_name, engine="openpyxl")
+
+        return {
+            "file_path": file_path,
+            "sheet_name": sheet_name,
+            "rows_written": len(df),
+            "columns": df.columns.tolist(),
+            "overwrite": overwrite,
+        }
+
+    def _data_to_dataframe(
+        self, data: Any, columns: Optional[List[str]]
+    ) -> pd.DataFrame:
+        if isinstance(data, list) and (not data or isinstance(data[0], dict)):
+            return pd.DataFrame(data)
+        if isinstance(data, list) and isinstance(data[0], (list, tuple)):
+            return pd.DataFrame(data, columns=columns)
+        raise ValueError("Data must be a list of dictionaries or list of lists")
