@@ -104,8 +104,13 @@ class GmailTool(BaseTool):
             }
         )
 
-    def get_credentials(self, user_id: str, auth_service: AuthService) -> Credentials:
-        auth_token = auth_service.get_user_auth_tokens(user_id)
+    def get_credentials(
+        self,
+        user_id: str,
+        auth_service: AuthService,
+        agent_id: Optional[str] = None,
+    ) -> Credentials:
+        auth_token = auth_service.get_user_auth_tokens(user_id, agent_id)
         google_token = next((token for token in auth_token if token.service == "google"), None)
 
         if not google_token:
@@ -120,7 +125,13 @@ class GmailTool(BaseTool):
             scopes=google_token.scope
         )
 
-    def execute(self, parameters: Dict[str, Any], user_id: str, auth_service: AuthService) -> Dict[str, Any]:
+    def execute(
+        self,
+        parameters: Dict[str, Any],
+        user_id: str,
+        auth_service: AuthService,
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         from app.core.logging import logger
 
         parameters = dict(parameters or {})
@@ -190,7 +201,7 @@ class GmailTool(BaseTool):
             parameters=parameters,
         )
 
-        credentials = self.get_credentials(user_id, auth_service)
+        credentials = self.get_credentials(user_id, auth_service, agent_id)
 
         if action in {"send", "create_draft"}:
             self._assert_send_scope(credentials)
@@ -212,12 +223,12 @@ class GmailTool(BaseTool):
                         attempt=attempt + 1,
                         action=action,
                     )
-                    refreshed = auth_service.refresh_google_token(user_id)
+                    refreshed = auth_service.refresh_google_token(user_id, agent_id)
                     if not refreshed:
                         raise Exception(
                             "Google authentication expired. Reconnect your Google account to restore Gmail access."
                         )
-                    credentials = self.get_credentials(user_id, auth_service)
+                    credentials = self.get_credentials(user_id, auth_service, agent_id)
                     if action in {"send", "create_draft"}:
                         self._assert_send_scope(credentials)
                     service = build('gmail', 'v1', credentials=credentials, cache_discovery=False)
@@ -1049,11 +1060,17 @@ class GoogleSheetsTool(BaseTool):
             }
         )
 
-    def execute(self, parameters: Dict[str, Any], user_id: str, auth_service: AuthService) -> Dict[str, Any]:
+    def execute(
+        self,
+        parameters: Dict[str, Any],
+        user_id: str,
+        auth_service: AuthService,
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         from app.tools.google_tools import GmailTool
 
         gmail_tool = GmailTool()
-        credentials = gmail_tool.get_credentials(user_id, auth_service)
+        credentials = gmail_tool.get_credentials(user_id, auth_service, agent_id)
         service = build('sheets', 'v4', credentials=credentials, cache_discovery=False)
         parameters = dict(parameters)
         if parameters.get("spreadsheetId") and not parameters.get("spreadsheet_id"):
@@ -1117,12 +1134,12 @@ class GoogleSheetsTool(BaseTool):
                 last_error = exc
                 status_code = getattr(getattr(exc, "resp", None), "status", None)
                 if status_code == 401 and attempt == 0:
-                    refreshed = auth_service.refresh_google_token(user_id)
+                    refreshed = auth_service.refresh_google_token(user_id, agent_id)
                     if not refreshed:
                         raise Exception(
                             "Google authentication expired. Reconnect your Google account to continue using Google Sheets."
                         )
-                    credentials = gmail_tool.get_credentials(user_id, auth_service)
+                    credentials = gmail_tool.get_credentials(user_id, auth_service, agent_id)
                     service = build('sheets', 'v4', credentials=credentials, cache_discovery=False)
                     continue
 
@@ -1329,7 +1346,13 @@ class GoogleCalendarTool(BaseTool):
             }
         )
 
-    def execute(self, parameters: Dict[str, Any], user_id: str, auth_service: AuthService) -> Dict[str, Any]:
+    def execute(
+        self,
+        parameters: Dict[str, Any],
+        user_id: str,
+        auth_service: AuthService,
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         from app.tools.google_tools import GmailTool
 
         parameters = dict(parameters or {})
@@ -1349,7 +1372,7 @@ class GoogleCalendarTool(BaseTool):
             )
 
         gmail_tool = GmailTool()
-        credentials = gmail_tool.get_credentials(user_id, auth_service)
+        credentials = gmail_tool.get_credentials(user_id, auth_service, agent_id)
         service = build('calendar', 'v3', credentials=credentials, cache_discovery=False)
         required_scopes = self._scopes_for_action(action)
         last_error: Optional[HttpError] = None
@@ -1376,12 +1399,12 @@ class GoogleCalendarTool(BaseTool):
                 status_code = getattr(getattr(exc, "resp", None), "status", None)
 
                 if status_code == 401 and attempt == 0:
-                    refreshed = auth_service.refresh_google_token(user_id)
+                    refreshed = auth_service.refresh_google_token(user_id, agent_id)
                     if not refreshed:
                         raise Exception(
                             "Google authentication expired. Reconnect your Google account to continue using Google Calendar."
                         )
-                    credentials = gmail_tool.get_credentials(user_id, auth_service)
+                    credentials = gmail_tool.get_credentials(user_id, auth_service, agent_id)
                     service = build('calendar', 'v3', credentials=credentials, cache_discovery=False)
                     continue
 
@@ -1604,12 +1627,13 @@ class GmailActionTool(BaseTool):
         self,
         parameters: Dict[str, Any],
         user_id: str,
-        auth_service: AuthService
+        auth_service: AuthService,
+        agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         payload = dict(parameters or {})
         if self._action:
             payload.setdefault("action", self._action)
-        return self._gmail_delegate.execute(payload, user_id, auth_service)
+        return self._gmail_delegate.execute(payload, user_id, auth_service, agent_id)
 
 
 class GmailGetMessageTool(GmailActionTool):
@@ -1862,11 +1886,12 @@ class GoogleSheetsActionTool(BaseTool):
         self,
         parameters: Dict[str, Any],
         user_id: str,
-        auth_service: AuthService
+        auth_service: AuthService,
+        agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         payload = dict(parameters or {})
         payload.setdefault("action", self._action)
-        return self._delegate.execute(payload, user_id, auth_service)
+        return self._delegate.execute(payload, user_id, auth_service, agent_id)
 
 
 class GoogleSheetsReadTool(GoogleSheetsActionTool):
@@ -1999,11 +2024,12 @@ class GoogleCalendarActionTool(BaseTool):
         self,
         parameters: Dict[str, Any],
         user_id: str,
-        auth_service: AuthService
+        auth_service: AuthService,
+        agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         payload = dict(parameters or {})
         payload.setdefault("action", self._action)
-        return self._delegate.execute(payload, user_id, auth_service)
+        return self._delegate.execute(payload, user_id, auth_service, agent_id)
 
 
 class GoogleCalendarListEventsTool(GoogleCalendarActionTool):
@@ -2158,12 +2184,13 @@ class GoogleDocsTool(BaseTool):
         self,
         parameters: Dict[str, Any],
         user_id: str,
-        auth_service: AuthService
+        auth_service: AuthService,
+        agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         from app.tools.google_tools import GmailTool
 
         gmail_tool = GmailTool()
-        credentials = gmail_tool.get_credentials(user_id, auth_service)
+        credentials = gmail_tool.get_credentials(user_id, auth_service, agent_id)
         parameters = dict(parameters or {})
 
         action_raw = parameters.get("action")
@@ -2217,12 +2244,12 @@ class GoogleDocsTool(BaseTool):
                 last_error = exc
                 status_code = getattr(getattr(exc, "resp", None), "status", None)
                 if status_code == 401 and attempt == 0:
-                    refreshed = auth_service.refresh_google_token(user_id)
+                    refreshed = auth_service.refresh_google_token(user_id, agent_id)
                     if not refreshed:
                         raise Exception(
                             "Google authentication expired. Reconnect your Google account to continue using Google Docs."
                         )
-                    credentials = gmail_tool.get_credentials(user_id, auth_service)
+                    credentials = gmail_tool.get_credentials(user_id, auth_service, agent_id)
                     continue
 
                 if status_code == 403 and "insufficientPermissions" in str(exc):
@@ -2418,11 +2445,12 @@ class GoogleDocsActionTool(BaseTool):
         self,
         parameters: Dict[str, Any],
         user_id: str,
-        auth_service: AuthService
+        auth_service: AuthService,
+        agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         payload = dict(parameters or {})
         payload.setdefault("action", self._action)
-        return self._delegate.execute(payload, user_id, auth_service)
+        return self._delegate.execute(payload, user_id, auth_service, agent_id)
 
 
 class GoogleDocsListDocumentsTool(GoogleDocsActionTool):

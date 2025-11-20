@@ -58,7 +58,7 @@ async def create_agent(
         auth_state = None
 
         if requires_google_auth:
-            tokens = auth_service.get_user_auth_tokens(str(current_user.id))
+            tokens = auth_service.get_user_auth_tokens(str(current_user.id), str(agent.id))
             required_scope_set = set(required_scopes)
             has_google = False
             for token in tokens:
@@ -71,7 +71,9 @@ async def create_agent(
 
             if not has_google:
                 auth_data = auth_service.create_google_auth_url(
-                    str(current_user.id), required_scopes or DEFAULT_GOOGLE_SCOPES
+                    str(current_user.id),
+                    required_scopes or DEFAULT_GOOGLE_SCOPES,
+                    agent_id=str(agent.id),
                 )
                 auth_required = True
                 auth_url = auth_data.get("auth_url")

@@ -134,7 +134,9 @@ def test_google_auth_endpoints(client, monkeypatch):
 
     fake_state = "state-token"
 
-    def fake_create_google_auth_url(self, user_id: str, scopes):
+    def fake_create_google_auth_url(
+        self, user_id: str, scopes, include_granted_scopes=False, agent_id=None
+    ):
         assert user_id
         assert scopes
         return {"auth_url": "https://accounts.example.com/oauth", "state": fake_state}
@@ -175,6 +177,144 @@ def test_google_auth_endpoints(client, monkeypatch):
     assert callback_resp.status_code == 200
     callback_data = callback_resp.json()
     assert callback_data["message"] == "Google authentication successful"
+
+
+def test_google_status_returns_auth_url_when_missing_token(client, monkeypatch):
+    creds = _register_user(client)
+    api_key = _generate_api_key(client, creds["email"], creds["password"])
+    headers = _auth_headers(api_key)
+
+    expected_state = "state-token"
+    expected_url = "https://accounts.example.com/oauth"
+
+    def fake_create_google_auth_url(
+        self, user_id: str, scopes, include_granted_scopes=False, agent_id=None
+    ):
+        assert user_id
+        assert scopes
+        return {"auth_url": expected_url, "state": expected_state}
+
+    monkeypatch.setattr(
+        AuthService,
+        "create_google_auth_url",
+        fake_create_google_auth_url,
+    )
+
+    resp = client.get(f"{API_PREFIX}/auth/google", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["auth_required"] is True
+    assert data["auth_url"] == expected_url
+    assert data["auth_state"] == expected_state
+    assert data["tokens"] == []
+    assert data["required_scopes"]
+
+
+def test_google_status_respects_tool_scopes(client, monkeypatch):
+    creds = _register_user(client)
+    api_key = _generate_api_key(client, creds["email"], creds["password"])
+    headers = _auth_headers(api_key)
+
+    captured_scopes = {}
+
+    def fake_create_google_auth_url(
+        self, user_id: str, scopes, include_granted_scopes=False, agent_id=None
+    ):
+        captured_scopes["value"] = scopes
+        return {
+            "auth_url": "https://accounts.example.com/oauth",
+            "state": "state-token",
+        }
+
+    monkeypatch.setattr(
+        AuthService,
+        "create_google_auth_url",
+        fake_create_google_auth_url,
+    )
+
+    resp = client.get(
+        f"{API_PREFIX}/auth/google",
+        headers=headers,
+        params={"tools": "gmail_read_messages"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["auth_required"] is True
+    assert captured_scopes["value"] == [
+        "https://www.googleapis.com/auth/gmail.readonly"
+    ]
+    assert data["required_scopes"] == [
+        "https://www.googleapis.com/auth/gmail.readonly"
+    ]
+
+
+def test_google_status_accepts_body_scopes(client, monkeypatch):
+    creds = _register_user(client)
+    api_key = _generate_api_key(client, creds["email"], creds["password"])
+    headers = _auth_headers(api_key)
+
+    captured_scopes = {}
+
+    def fake_create_google_auth_url(
+        self, user_id: str, scopes, include_granted_scopes=False, agent_id=None
+    ):
+        captured_scopes["value"] = scopes
+        return {
+            "auth_url": "https://accounts.example.com/oauth",
+            "state": "state-token",
+        }
+
+    monkeypatch.setattr(
+        AuthService,
+        "create_google_auth_url",
+        fake_create_google_auth_url,
+    )
+
+    body_scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
+    resp = client.post(
+        f"{API_PREFIX}/auth/google",
+        headers=headers,
+        json={"scopes": body_scopes},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["auth_required"] is True
+    assert captured_scopes["value"] == body_scopes
+    assert data["required_scopes"] == body_scopes
+
+
+def test_google_auth_post_accepts_body_scopes(client, monkeypatch):
+    creds = _register_user(client)
+    api_key = _generate_api_key(client, creds["email"], creds["password"])
+    headers = _auth_headers(api_key)
+
+    captured_scopes = {}
+
+    def fake_create_google_auth_url(
+        self, user_id: str, scopes, include_granted_scopes=False, agent_id=None
+    ):
+        captured_scopes["value"] = scopes
+        return {
+            "auth_url": "https://accounts.example.com/oauth",
+            "state": "state-token",
+        }
+
+    monkeypatch.setattr(
+        AuthService,
+        "create_google_auth_url",
+        fake_create_google_auth_url,
+    )
+
+    body_scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
+    resp = client.post(
+        f"{API_PREFIX}/auth/google/auth",
+        headers=headers,
+        json={"scopes": body_scopes},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert captured_scopes["value"] == body_scopes
+    assert data["required_scopes"] == body_scopes
 
 
 def test_tool_endpoints(client, tmp_path):

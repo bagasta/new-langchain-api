@@ -422,7 +422,13 @@ class AuthService:
             return None
         return TokenData(sub=user_id)
 
-    def create_google_auth_url(self, user_id: str, scopes: Optional[Sequence[str]] = None) -> Dict[str, str]:
+    def create_google_auth_url(
+        self,
+        user_id: str,
+        scopes: Optional[Sequence[str]] = None,
+        include_granted_scopes: bool = False,
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, str]:
         requested_scopes = normalize_scopes(scopes or DEFAULT_GOOGLE_SCOPES)
         scopes = normalize_scopes(list(requested_scopes) + GOOGLE_IDENTITY_SCOPES)
         state_payload = {
@@ -430,6 +436,8 @@ class AuthService:
             "n": str(uuid4()),
             "s": scopes,
         }
+        if agent_id:
+            state_payload["a"] = agent_id
         state_bytes = json.dumps(state_payload).encode("utf-8")
         state = base64.urlsafe_b64encode(state_bytes).decode("utf-8").rstrip("=")
 
@@ -450,9 +458,9 @@ class AuthService:
 
         auth_url, _ = flow.authorization_url(
             access_type="offline",
-            include_granted_scopes="true",
+            include_granted_scopes=include_granted_scopes,
             prompt="consent",
-            state=state
+            state=state,
         )
 
         return {"auth_url": auth_url, "state": state}
@@ -558,17 +566,41 @@ class AuthService:
             "expires_at": expires_at
         }
 
-    def save_auth_token(self, user_id: str, token_data: Dict[str, Any]) -> AuthToken:
+    def save_auth_token(
+        self,
+        user_id: str,
+        token_data: Dict[str, Any],
+        agent_id: Optional[str] = None,
+    ) -> AuthToken:
         scope = token_data["scope"]
         if isinstance(scope, str):
             scope = normalize_scopes(scope.split())
         else:
             scope = normalize_scopes(scope)
 
-        auth_token = self.db.query(AuthToken).filter(
+        agent_uuid: Optional[UUID] = None
+        if agent_id:
+            try:
+                agent_uuid = UUID(str(agent_id))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid agent_id for auth token",
+                )
+
+        query = self.db.query(AuthToken).filter(
             AuthToken.user_id == user_id,
-            AuthToken.service == "google"
-        ).first()
+            AuthToken.service == "google",
+        )
+
+        if agent_uuid:
+            auth_token = (
+                query.filter(AuthToken.agent_id == agent_uuid)
+                .order_by(AuthToken.created_at.desc())
+                .first()
+            )
+        else:
+            auth_token = query.filter(AuthToken.agent_id.is_(None)).first()
 
         new_refresh_token = token_data.get("refresh_token")
 
@@ -581,6 +613,7 @@ class AuthService:
         else:
             auth_token = AuthToken(
                 user_id=user_id,
+                agent_id=agent_uuid,
                 service="google",
                 access_token=token_data["access_token"],
                 refresh_token=new_refresh_token,
@@ -593,14 +626,65 @@ class AuthService:
         self.db.refresh(auth_token)
         return auth_token
 
-    def get_user_auth_tokens(self, user_id: str) -> List[AuthToken]:
-        return self.db.query(AuthToken).filter(AuthToken.user_id == user_id).all()
+    def get_user_auth_tokens(
+        self,
+        user_id: str,
+        agent_id: Optional[str] = None,
+    ) -> List[AuthToken]:
+        base_query = self.db.query(AuthToken).filter(AuthToken.user_id == user_id)
 
-    def refresh_google_token(self, user_id: str) -> Optional[AuthToken]:
-        auth_token = self.db.query(AuthToken).filter(
+        agent_uuid: Optional[UUID] = None
+        if agent_id:
+            try:
+                agent_uuid = UUID(str(agent_id))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid agent_id for auth token lookup",
+                )
+
+        if agent_uuid:
+            agent_tokens = (
+                base_query.filter(AuthToken.agent_id == agent_uuid)
+                .order_by(AuthToken.created_at.desc())
+                .all()
+            )
+            return agent_tokens
+
+        return base_query.order_by(AuthToken.created_at.desc()).all()
+
+    def refresh_google_token(
+        self,
+        user_id: str,
+        agent_id: Optional[str] = None,
+    ) -> Optional[AuthToken]:
+        token_query = self.db.query(AuthToken).filter(
             AuthToken.user_id == user_id,
-            AuthToken.service == "google"
-        ).first()
+            AuthToken.service == "google",
+        )
+
+        agent_uuid: Optional[UUID] = None
+        if agent_id:
+            try:
+                agent_uuid = UUID(str(agent_id))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid agent_id for token refresh",
+                )
+
+        if agent_uuid:
+            auth_token = (
+                token_query.filter(AuthToken.agent_id == agent_uuid)
+                .order_by(AuthToken.created_at.desc())
+                .first()
+            )
+        else:
+            auth_token = (
+                token_query.filter(AuthToken.agent_id.is_(None))
+                .order_by(AuthToken.created_at.desc())
+                .first()
+            )
 
         if not auth_token or not auth_token.refresh_token:
             return None

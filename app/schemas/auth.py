@@ -21,12 +21,22 @@ class TokenData(BaseModel):
 
 
 class GoogleAuthRequest(BaseModel):
-    email: str
+    email: Optional[str] = None
+    tools: Optional[List[str]] = None
+    scopes: Optional[List[str]] = None
+    agent_id: Optional[UUID] = None
 
 
 class GoogleAuthResponse(BaseModel):
     auth_url: str
     state: str
+    required_scopes: Optional[List[str]] = None
+
+
+class GoogleStatusRequest(BaseModel):
+    tools: Optional[List[str]] = None
+    scopes: Optional[List[str]] = None
+    agent_id: Optional[UUID] = None
 
 
 class GoogleAuthCallback(BaseModel):

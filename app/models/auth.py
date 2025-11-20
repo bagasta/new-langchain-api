@@ -10,6 +10,7 @@ class AuthToken(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=True, index=True)
     service = Column(String(50), nullable=False)  # 'google', 'microsoft', etc.
     access_token = Column(String, nullable=False)
     refresh_token = Column(String)
@@ -18,6 +19,7 @@ class AuthToken(Base):
 
     # Relationships
     user = relationship("User", back_populates="auth_tokens")
+    agent = relationship("Agent", back_populates="auth_tokens", foreign_keys=[agent_id])
 
 
 class ApiKey(Base):

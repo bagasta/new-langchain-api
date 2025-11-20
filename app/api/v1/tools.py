@@ -109,7 +109,7 @@ async def execute_tool(
     """Execute a tool directly"""
     try:
         result = tool_service.execute_tool(
-            request.tool_id, request.parameters, current_user.id
+            request.tool_id, request.parameters, current_user.id, request.agent_id
         )
         logger.info("Tool executed", tool_id=request.tool_id, user_id=str(current_user.id))
         return result

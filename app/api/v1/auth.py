@@ -2,13 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Query, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Union
 from uuid import UUID
 import base64
 import json
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, get_auth_service, security
+from app.core.deps import (
+    get_current_user,
+    get_auth_service,
+    get_tool_service,
+    security,
+)
 from app.services.auth_service import (
     AuthService,
     DEFAULT_GOOGLE_SCOPES,
@@ -19,6 +24,7 @@ from app.schemas.auth import (
     Token,
     GoogleAuthRequest,
     GoogleAuthResponse,
+    GoogleStatusRequest,
     GoogleAuthCallback,
     ApiKeyRequest,
     ApiKeyResponse,
@@ -27,6 +33,7 @@ from app.schemas.auth import (
     ApiKeyUpdateRequest,
     UserPasswordUpdateRequest,
 )
+from app.services.tool_service import ToolService
 from app.core.logging import logger
 
 router = APIRouter()
@@ -145,20 +152,29 @@ async def register(
 
 
 async def _init_google_auth(
-    current_user: User = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service)
+    current_user: User,
+    auth_service: AuthService,
+    tool_service: ToolService,
+    tools: Optional[str] = None,
+    scopes: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    request: Optional[Union[GoogleStatusRequest, GoogleAuthRequest]] = None,
 ):
     """Shared helper for initiating Google OAuth authentication."""
     try:
-        # For demo purposes, we'll use some default scopes
-        # In production, these should be determined by the tools the user wants to use
+        required_scopes = _resolve_required_scopes(
+            tools, scopes, request, tool_service
+        )
+
         auth_response = auth_service.create_google_auth_url(
-            str(current_user.id), DEFAULT_GOOGLE_SCOPES
+            str(current_user.id),
+            required_scopes,
+            agent_id=agent_id,
         )
 
         logger.info("Google auth initiated", user_id=str(current_user.id))
 
-        return auth_response
+        return {**auth_response, "required_scopes": required_scopes}
 
     except HTTPException as exc:
         logger.warning("Google auth initiation failed", error=str(exc.detail), user_id=str(current_user.id))
@@ -174,20 +190,62 @@ async def _init_google_auth(
 @router.post("/google/auth", response_model=GoogleAuthResponse)
 async def google_auth_post(
     request: GoogleAuthRequest,  # kept for backward compatibility
+    tools: Optional[str] = Query(
+        None,
+        description="Comma-separated tool names to derive required Google scopes.",
+    ),
+    scopes: Optional[str] = Query(
+        None,
+        description="Space- or comma-separated scopes to request explicitly.",
+    ),
+    agent_id: Optional[str] = Query(
+        None,
+        description="Agent ID to scope the OAuth grant to a specific agent.",
+    ),
     current_user: User = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    tool_service: ToolService = Depends(get_tool_service),
 ):
     """Initiate Google OAuth authentication (POST)."""
-    return await _init_google_auth(current_user, auth_service)
+    return await _init_google_auth(
+        current_user,
+        auth_service,
+        tool_service,
+        tools,
+        scopes,
+        agent_id or (str(request.agent_id) if request and request.agent_id else None),
+        request,
+    )
 
 
 @router.get("/google/auth", response_model=GoogleAuthResponse)
 async def google_auth_get(
+    tools: Optional[str] = Query(
+        None,
+        description="Comma-separated tool names to derive required Google scopes.",
+    ),
+    scopes: Optional[str] = Query(
+        None,
+        description="Space- or comma-separated scopes to request explicitly.",
+    ),
+    agent_id: Optional[str] = Query(
+        None,
+        description="Agent ID to scope the OAuth grant to a specific agent.",
+    ),
     current_user: User = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    tool_service: ToolService = Depends(get_tool_service),
 ):
     """Initiate Google OAuth authentication (GET for clickable links)."""
-    return await _init_google_auth(current_user, auth_service)
+    return await _init_google_auth(
+        current_user,
+        auth_service,
+        tool_service,
+        tools,
+        scopes,
+        agent_id,
+        None,
+    )
 
 
 async def process_google_callback(
@@ -221,6 +279,7 @@ async def process_google_callback(
         user = None
         user_id_from_state = None
         state_user = state_data.get("u") if state_data else None
+        state_agent = state_data.get("a") if state_data else None
         if state_user:
             try:
                 user_id_from_state = UUID(state_user)
@@ -238,7 +297,7 @@ async def process_google_callback(
             user = auth_service.create_user(token_data["email"], temp_password)
 
         # Save auth token
-        auth_service.save_auth_token(str(user.id), token_data)
+        auth_service.save_auth_token(str(user.id), token_data, state_agent)
 
         logger.info("Google OAuth callback processed", user_id=str(user.id))
 
@@ -505,22 +564,156 @@ async def activate_user(
         )
 
 
+def _parse_scope_query(raw_scopes: Optional[str]) -> List[str]:
+    """Split and normalise scopes provided as a query string."""
+    if not raw_scopes:
+        return []
+    parts = [
+        part.strip()
+        for part in raw_scopes.replace(",", " ").split()
+        if part.strip()
+    ]
+    return normalize_scopes(parts)
+
+
+def _resolve_required_scopes(
+    tools_query: Optional[str],
+    scopes_query: Optional[str],
+    request: Optional[Union[GoogleStatusRequest, GoogleAuthRequest]],
+    tool_service: ToolService,
+) -> List[str]:
+    body_scopes = (
+        normalize_scopes(request.scopes) if request and request.scopes else []
+    )
+    if body_scopes:
+        return body_scopes
+
+    query_scopes = _parse_scope_query(scopes_query)
+    if query_scopes:
+        return query_scopes
+
+    body_tools = request.tools if request and request.tools else []
+    tools = body_tools
+    if not tools and tools_query:
+        tools = [tool.strip() for tool in tools_query.split(",") if tool.strip()]
+
+    if tools:
+        scoped = tool_service.get_required_scopes(tools)
+        if scoped:
+            return scoped
+
+    return DEFAULT_GOOGLE_SCOPES
+
+
+def _build_google_tokens_response(
+    required_scopes: List[str],
+    current_user: User,
+    auth_service: AuthService,
+    agent_id: Optional[str] = None,
+):
+    tokens = auth_service.get_user_auth_tokens(str(current_user.id), agent_id)
+    required_scope_set = set(required_scopes)
+
+    if agent_id:
+        candidate_tokens = [
+            token
+            for token in tokens
+            if token.service == "google"
+            and str(getattr(token, "agent_id", None)) == agent_id
+        ]
+        tokens = candidate_tokens
+    else:
+        candidate_tokens = [token for token in tokens if token.service == "google"]
+
+    has_required_scopes = any(
+        required_scope_set.issubset(set(token.scope or []))
+        for token in candidate_tokens
+    )
+
+    token_payload = [
+        {
+            "id": str(token.id),
+            "service": token.service,
+            "scope": token.scope,
+            "expires_at": token.expires_at,
+            "created_at": token.created_at,
+        }
+        for token in tokens
+    ]
+
+    if has_required_scopes:
+        return {
+            "auth_required": False,
+            "auth_url": None,
+            "auth_state": None,
+            "required_scopes": required_scopes,
+            "tokens": token_payload,
+        }
+
+    auth_data = auth_service.create_google_auth_url(
+        str(current_user.id), required_scopes, agent_id=agent_id
+    )
+
+    return {
+        "auth_required": True,
+        "auth_url": auth_data.get("auth_url"),
+        "auth_state": auth_data.get("state"),
+        "required_scopes": required_scopes,
+        "tokens": token_payload,
+    }
+
+
 @router.get("/google")
 async def get_google_tokens(
+    tools: Optional[str] = Query(
+        None,
+        description="Comma-separated tool names to derive required Google scopes.",
+    ),
+    scopes: Optional[str] = Query(
+        None,
+        description="Space- or comma-separated scopes to request explicitly.",
+    ),
+    agent_id: Optional[str] = Query(
+        None,
+        description="Agent ID to scope the OAuth grant to a specific agent.",
+    ),
     current_user: User = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    tool_service: ToolService = Depends(get_tool_service),
 ):
-    """Get user's Google authentication tokens"""
-    tokens = auth_service.get_user_auth_tokens(str(current_user.id))
-    return {
-        "tokens": [
-            {
-                "id": str(token.id),
-                "service": token.service,
-                "scope": token.scope,
-                "expires_at": token.expires_at,
-                "created_at": token.created_at
-            }
-            for token in tokens
-        ]
-    }
+    """Return Google auth status, initiating OAuth when scopes are missing."""
+    required_scopes = _resolve_required_scopes(tools, scopes, None, tool_service)
+    return _build_google_tokens_response(
+        required_scopes, current_user, auth_service, agent_id
+    )
+
+
+@router.post("/google")
+async def get_google_tokens_post(
+    request: Optional[GoogleStatusRequest] = None,
+    tools: Optional[str] = Query(
+        None,
+        description="Comma-separated tool names to derive required Google scopes.",
+    ),
+    scopes: Optional[str] = Query(
+        None,
+        description="Space- or comma-separated scopes to request explicitly.",
+    ),
+    agent_id: Optional[str] = Query(
+        None,
+        description="Agent ID to scope the OAuth grant to a specific agent.",
+    ),
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+    tool_service: ToolService = Depends(get_tool_service),
+):
+    """Return Google auth status using request body (tools/scopes) when provided."""
+    required_scopes = _resolve_required_scopes(
+        tools, scopes, request, tool_service
+    )
+    resolved_agent_id = (
+        str(request.agent_id) if request and request.agent_id else agent_id
+    )
+    return _build_google_tokens_response(
+        required_scopes, current_user, auth_service, resolved_agent_id
+    )

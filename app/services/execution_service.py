@@ -237,7 +237,9 @@ class ExecutionService:
         # Create LangChain tools
         langchain_tools = []
         for tool_record in tool_records:
-            tool_instance = self._create_langchain_tool(tool_record, agent.user_id)
+            tool_instance = self._create_langchain_tool(
+                tool_record, agent.user_id, agent.id
+            )
             if tool_instance:
                 langchain_tools.append(tool_instance)
 
@@ -653,6 +655,9 @@ class ExecutionService:
                 "You have access to the following tools to help users: "
                 f"{', '.join(unique_tool_names)}."
             )
+            guidance_blocks.append(
+                "If a request requires actions or data from tools you do not have, explain that this agent lacks the necessary tool or permissions instead of looping or fabricating a result."
+            )
 
         if has_tools:
             guidance_blocks.append(
@@ -668,13 +673,38 @@ class ExecutionService:
             )
 
         tool_names_lower = {name.lower() for name in unique_tool_names}
-        if "gmail" in tool_names_lower:
+        has_gmail_send = any(
+            name in tool_names_lower
+            for name in {
+                "gmail",
+                "gmail_send_message",
+                "gmail_create_draft",
+                "gmail_action_send_message",
+                "gmail_action_create_draft",
+            }
+        )
+        has_gmail_read = any(
+            name in tool_names_lower
+            for name in {
+                "gmail",
+                "gmail_read_messages",
+                "gmail_list_messages",
+                "gmail_get_message",
+                "gmail_get_thread",
+            }
+        )
+
+        if "gmail" in tool_names_lower or has_gmail_read or has_gmail_send:
             guidance_blocks.append(
                 "For any email task you must call the Gmail tool. Supported actions include 'send', 'read', 'search', 'create_draft', 'get_message', and 'get_thread'. "
                 "For 'send' and 'create_draft', include 'to', 'subject', and 'message' (or 'body'), plus optional 'is_html', 'cc', or 'bcc'. "
                 "For reading, provide an 'email_id'/'message_id' or a search query with 'max_results'; set 'mark_as_read' to true only when the user explicitly asks. "
                 "If the user asks to send an email but omits required information, ask follow-up questions before calling the tool."
             )
+            if has_gmail_read and not has_gmail_send:
+                guidance_blocks.append(
+                    "You only have Gmail read/search access for this agent. If a user asks to send, draft, or modify mail, state clearly that this agent is read-only and request an agent with send permissions instead."
+                )
         if "google_sheets" in tool_names_lower:
             guidance_blocks.append(
                 "For spreadsheet actions, call the Google Sheets tool with the requested operation and range."
@@ -858,7 +888,7 @@ class ExecutionService:
         except Exception:  # noqa: BLE001
             return None
 
-    def _create_langchain_tool(self, tool_record: Tool, user_id: UUID):
+    def _create_langchain_tool(self, tool_record: Tool, user_id: UUID, agent_id: UUID):
         """Create a LangChain tool from our tool system"""
         tool_id = str(tool_record.id)
 
@@ -889,7 +919,7 @@ class ExecutionService:
                     payload = parsed
 
             try:
-                result = self.tool_service.execute_tool(tool_id, payload, user_id)
+                result = self.tool_service.execute_tool(tool_id, payload, user_id, agent_id)
             except ValueError as exc:
                 return f"Tool validation error: {exc}"
             except Exception as exc:  # noqa: BLE001

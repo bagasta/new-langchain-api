@@ -42,6 +42,7 @@ class ToolResponse(BaseModel):
 class ToolExecuteRequest(BaseModel):
     tool_id: str
     parameters: Dict[str, Any] = Field(default_factory=dict)
+    agent_id: Optional[UUID] = None
 
 
 class ToolExecuteResponse(BaseModel):

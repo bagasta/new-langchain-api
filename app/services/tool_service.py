@@ -269,7 +269,13 @@ class ToolService:
 
         return None
 
-    def execute_tool(self, tool_identifier: str, parameters: Dict[str, Any], user_id: UUID) -> Dict[str, Any]:
+    def execute_tool(
+        self,
+        tool_identifier: str,
+        parameters: Dict[str, Any],
+        user_id: UUID,
+        agent_id: Optional[UUID] = None,
+    ) -> Dict[str, Any]:
         """Execute a tool with given parameters"""
         tool_record = None
 
@@ -300,7 +306,12 @@ class ToolService:
                     from app.services.auth_service import AuthService
 
                     auth_service = AuthService(self.db)
-                    return tool_instance.execute(parameters, str(user_id), auth_service)
+                    return tool_instance.execute(
+                        parameters,
+                        str(user_id),
+                        auth_service,
+                        str(agent_id) if agent_id else None,
+                    )
 
                 return tool_instance.run(parameters)
 

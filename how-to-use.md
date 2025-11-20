@@ -223,7 +223,35 @@ If you have access to an already activated user account, use that email/password
     -H "Authorization: Bearer $TOKEN"
   ```
 
-  Initiates Google OAuth authentication or returns the latest token payload when already linked. No request body is required.
+  Add context so only the needed scopes are requested:
+
+  ```bash
+  # Request scopes for specific tools (recommended to avoid broad consent screens)
+  curl -X GET "$BASE_URL$API_PREFIX/auth/google?tools=gmail_read_messages" \
+    -H "Authorization: Bearer $TOKEN"
+
+  # Or pass scopes directly (space- or comma-separated)
+  curl -X GET "$BASE_URL$API_PREFIX/auth/google?scopes=https://www.googleapis.com/auth/gmail.readonly" \
+    -H "Authorization: Bearer $TOKEN"
+
+  # Bind to a specific agent so each agent can use different Google accounts/scopes
+  curl -X GET "$BASE_URL$API_PREFIX/auth/google?tools=gmail_read_messages&agent_id=$AGENT_ID" \
+    -H "Authorization: Bearer $TOKEN"
+  ```
+
+  Prefer sending scopes in the body to avoid URL length and quickly swap scope sets:
+
+  ```bash
+  curl -X POST "$BASE_URL$API_PREFIX/auth/google" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+          "scopes": ["https://www.googleapis.com/auth/gmail.readonly"],
+          "agent_id": "00000000-0000-0000-0000-000000000000"
+        }'
+  ```
+
+  Initiates Google OAuth authentication or returns the latest token payload when already linked. Supply `tools`/`scopes` via query or POST body; body values take precedence. Include `agent_id` when each agent should have its own Google account/scopes.
 
   **Note:** The system automatically handles scope changes from Google. When requesting `drive.file` scope, Google may add broader Drive scopes (`drive`, `drive.photos.readonly`, `drive.appdata`) which are accepted as long as all requested scopes are granted.
 
