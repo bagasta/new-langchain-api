@@ -255,6 +255,19 @@ If you have access to an already activated user account, use that email/password
 
   **Note:** The system automatically handles scope changes from Google. When requesting `drive.file` scope, Google may add broader Drive scopes (`drive`, `drive.photos.readonly`, `drive.appdata`) which are accepted as long as all requested scopes are granted.
 
+- **GET /refresh-status-google** (API key + `agent_id`)
+
+  ```bash
+  curl -X POST "$BASE_URL$API_PREFIX/auth/refresh-status-google" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+          "agent_id": "'"$AGENT_ID"'"
+        }'
+  ```
+
+  Checks the Google OAuth status for a specific agent using API key auth and refreshes the token when a refresh token is available. The response includes the agent ID, whether a refresh occurred (`refreshed`), and a simple `status` string. If any Google token exists (agent-scoped first, then global), status is `Authenticated` and the payload includes `required_scopes`, `granted_scopes`, and `missing_scopes` so you can see exactly which scopes are available. If no Google token is stored, status is `Unauthenticated`.
+
 - **GET /google/callback**
 
   ```bash

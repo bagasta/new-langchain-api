@@ -283,6 +283,174 @@ def test_google_status_accepts_body_scopes(client, monkeypatch):
     assert data["required_scopes"] == body_scopes
 
 
+def test_refresh_status_google_uses_agent_scopes(client, monkeypatch):
+    creds = _register_user(client)
+    api_key = _generate_api_key(client, creds["email"], creds["password"])
+    headers = _auth_headers(api_key)
+
+    create_payload = {
+        "name": "Gmail Agent",
+        "tools": ["gmail_read_messages"],
+        "config": {
+            "llm_model": "gpt-4o-mini",
+            "temperature": 0.2,
+            "max_tokens": 256,
+            "memory_type": "buffer",
+            "reasoning_strategy": "react",
+        },
+    }
+    create_resp = client.post(
+        f"{API_PREFIX}/agents/", headers=headers, json=create_payload
+    )
+    assert create_resp.status_code == 200
+    agent_id = create_resp.json()["id"]
+
+    refreshed_calls = []
+    token_calls = []
+    dummy_token = type("Token", (), {"service": "google", "scope": ["https://www.googleapis.com/auth/gmail.readonly"]})
+    dummy_global_token = type("Token", (), {"service": "google", "scope": ["https://www.googleapis.com/auth/gmail.readonly", "scopeX"]})
+
+    def fake_refresh_google_token(self, user_id: str, agent_id: str | None = None):
+        refreshed_calls.append((user_id, agent_id))
+        return None
+
+    def fake_get_user_auth_tokens(self, user_id: str, agent_id: str | None = None):
+        token_calls.append(agent_id)
+        if agent_id:
+            return []
+        return [dummy_token(), dummy_global_token()]
+
+    monkeypatch.setattr(AuthService, "refresh_google_token", fake_refresh_google_token)
+    monkeypatch.setattr(AuthService, "get_user_auth_tokens", fake_get_user_auth_tokens)
+
+    resp = client.post(
+        f"{API_PREFIX}/auth/refresh-status-google",
+        headers=headers,
+        json={"agent_id": agent_id},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["agent_id"] == agent_id
+    assert data["status"] == "Authenticated"
+    assert data["refreshed"] is False
+    assert data["missing_scopes"] == []
+    assert data["granted_scopes"] == [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "scopeX",
+    ]
+    assert refreshed_calls == [
+        (creds["user_id"], agent_id),
+        (creds["user_id"], None),
+    ]
+    assert token_calls == [agent_id, None]
+
+
+def test_refresh_status_google_skips_oauth_when_no_google_tools(client):
+    creds = _register_user(client)
+    api_key = _generate_api_key(client, creds["email"], creds["password"])
+    headers = _auth_headers(api_key)
+
+    create_payload = {
+        "name": "File Agent",
+        "tools": ["file_list"],
+        "config": {
+            "llm_model": "gpt-4o-mini",
+            "temperature": 0.2,
+            "max_tokens": 256,
+            "memory_type": "buffer",
+            "reasoning_strategy": "react",
+        },
+    }
+    create_resp = client.post(
+        f"{API_PREFIX}/agents/", headers=headers, json=create_payload
+    )
+    assert create_resp.status_code == 200
+    agent_id = create_resp.json()["id"]
+
+    resp = client.post(
+        f"{API_PREFIX}/auth/refresh-status-google",
+        headers=headers,
+        json={"agent_id": agent_id},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["agent_id"] == agent_id
+    assert data["status"] == "Authenticated"
+    assert data["refreshed"] is False
+    assert data["granted_scopes"] == []
+    assert data["missing_scopes"] == []
+    assert data["required_scopes"] == []
+
+
+def test_refresh_status_google_uses_global_when_agent_token_insufficient(client, monkeypatch):
+    creds = _register_user(client)
+    api_key = _generate_api_key(client, creds["email"], creds["password"])
+    headers = _auth_headers(api_key)
+
+    create_payload = {
+        "name": "Sheets Agent",
+        "tools": ["google_sheets_get_values"],
+        "config": {
+            "llm_model": "gpt-4o-mini",
+            "temperature": 0.2,
+            "max_tokens": 256,
+            "memory_type": "buffer",
+            "reasoning_strategy": "react",
+        },
+    }
+    create_resp = client.post(
+        f"{API_PREFIX}/agents/", headers=headers, json=create_payload
+    )
+    assert create_resp.status_code == 200
+    agent_id = create_resp.json()["id"]
+
+    refreshed_calls = []
+    token_calls = []
+    insufficient_agent_token = type(
+        "Token",
+        (),
+        {"service": "google", "scope": ["https://www.googleapis.com/auth/gmail.readonly"]},
+    )
+    full_global_token = type(
+        "Token",
+        (),
+        {"service": "google", "scope": ["https://www.googleapis.com/auth/spreadsheets.readonly"]},
+    )
+
+    def fake_refresh_google_token(self, user_id: str, agent_id: str | None = None):
+        refreshed_calls.append((user_id, agent_id))
+        return None
+
+    def fake_get_user_auth_tokens(self, user_id: str, agent_id: str | None = None):
+        token_calls.append(agent_id)
+        if agent_id:
+            return [insufficient_agent_token()]
+        return [full_global_token()]
+
+    monkeypatch.setattr(AuthService, "refresh_google_token", fake_refresh_google_token)
+    monkeypatch.setattr(AuthService, "get_user_auth_tokens", fake_get_user_auth_tokens)
+
+    resp = client.post(
+        f"{API_PREFIX}/auth/refresh-status-google",
+        headers=headers,
+        json={"agent_id": agent_id},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "Authenticated"
+    assert data["refreshed"] is False
+    assert data["missing_scopes"] == []
+    assert set(data["granted_scopes"]) == {
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+    }
+    assert refreshed_calls == [
+        (creds["user_id"], agent_id),
+        (creds["user_id"], None),
+    ]
+    assert token_calls == [agent_id, None]
+
+
 def test_google_auth_post_accepts_body_scopes(client, monkeypatch):
     creds = _register_user(client)
     api_key = _generate_api_key(client, creds["email"], creds["password"])

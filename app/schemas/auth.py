@@ -39,6 +39,10 @@ class GoogleStatusRequest(BaseModel):
     agent_id: Optional[UUID] = None
 
 
+class RefreshStatusGoogleRequest(BaseModel):
+    agent_id: UUID
+
+
 class GoogleAuthCallback(BaseModel):
     code: str
     state: str

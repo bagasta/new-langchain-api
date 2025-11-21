@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Response, Query, Body, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -10,6 +10,8 @@ import json
 from app.core.database import get_db
 from app.core.deps import (
     get_current_user,
+    get_api_key_user,
+    get_agent_service,
     get_auth_service,
     get_tool_service,
     security,
@@ -32,8 +34,10 @@ from app.schemas.auth import (
     TrialApiKeyResponse,
     ApiKeyUpdateRequest,
     UserPasswordUpdateRequest,
+    RefreshStatusGoogleRequest,
 )
 from app.services.tool_service import ToolService
+from app.services.agent_service import AgentService
 from app.core.logging import logger
 
 router = APIRouter()
@@ -641,6 +645,15 @@ def _build_google_tokens_response(
         for token in tokens
     ]
 
+    if not required_scopes:
+        return {
+            "auth_required": False,
+            "auth_url": None,
+            "auth_state": None,
+            "required_scopes": required_scopes,
+            "tokens": token_payload,
+        }
+
     if has_required_scopes:
         return {
             "auth_required": False,
@@ -717,3 +730,100 @@ async def get_google_tokens_post(
     return _build_google_tokens_response(
         required_scopes, current_user, auth_service, resolved_agent_id
     )
+
+
+@router.post("/refresh-status-google")
+async def refresh_google_auth_status(
+    request: RefreshStatusGoogleRequest = Body(
+        ...,
+        description="Agent ID to check Google authentication status for.",
+    ),
+    current_user: User = Depends(get_api_key_user),
+    auth_service: AuthService = Depends(get_auth_service),
+    agent_service: AgentService = Depends(get_agent_service),
+    tool_service: ToolService = Depends(get_tool_service),
+):
+    """Refresh and return Google auth status for a specific agent using API key auth."""
+    try:
+        agent_id = request.agent_id
+        agent = agent_service.get_agent(agent_id, current_user.id)
+        agent_tools = agent_service.get_agent_tools(agent_id, current_user.id)
+        tool_names = [tool.name for tool in agent_tools if tool.name]
+        required_scopes = tool_service.get_required_scopes(tool_names)
+
+        refreshed = False
+        refreshed_token = None
+        try:
+            refreshed_token = auth_service.refresh_google_token(
+                str(current_user.id),
+                str(agent_id),
+            )
+            if not refreshed_token:
+                refreshed_token = auth_service.refresh_google_token(
+                    str(current_user.id),
+                    None,
+                )
+            refreshed = refreshed_token is not None
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error(
+                "Failed to refresh Google token",
+                error=str(exc),
+                agent_id=str(agent_id),
+                user_id=str(current_user.id),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to refresh Google authentication status",
+            ) from exc
+
+        tokens_agent = auth_service.get_user_auth_tokens(
+            str(current_user.id), str(agent_id)
+        )
+        tokens_global = auth_service.get_user_auth_tokens(str(current_user.id), None)
+        required_scope_set = set(required_scopes)
+
+        combined_tokens = [
+            token
+            for token in (tokens_agent + tokens_global)
+            if getattr(token, "service", None) == "google"
+        ]
+        granted_scopes = set()
+        for token in combined_tokens:
+            for scope in token.scope or []:
+                granted_scopes.add(scope)
+
+        has_any_google_token = bool(combined_tokens)
+        missing_scopes = (
+            sorted(required_scope_set - granted_scopes) if required_scope_set else []
+        )
+
+        status_text = (
+            "Authenticated"
+            if (has_any_google_token or not required_scope_set)
+            else "Unauthenticated"
+        )
+
+        return {
+            "agent_id": str(agent.id),
+            "status": status_text,
+            "refreshed": refreshed,
+            "required_scopes": required_scopes,
+            "granted_scopes": sorted(granted_scopes),
+            "missing_scopes": missing_scopes,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Failed to fetch Google auth status",
+            error=str(exc),
+            agent_id=str(agent_id),
+            user_id=str(current_user.id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch Google authentication status",
+        ) from exc
