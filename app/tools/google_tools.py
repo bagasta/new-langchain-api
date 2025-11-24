@@ -2145,18 +2145,22 @@ class GoogleDocsTool(BaseTool):
     def __init__(self):
         super().__init__(
             name="google_docs",
-            description="List, read, and edit Google Docs documents.",
+            description="List, read, edit, and delete Google Docs documents.",
             schema={
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["list_documents", "get_document", "append_text", "create_document"],
+                        "enum": ["list_documents", "get_document", "append_text", "create_document", "delete_document"],
                         "description": "Docs action to perform."
                     },
                     "document_id": {
                         "type": "string",
-                        "description": "Target document ID (get_document/append_text)."
+                        "description": "Target document ID (get_document/append_text/delete_document)."
+                    },
+                    "delete": {
+                        "type": "boolean",
+                        "description": "When true (with document_id), delete the document."
                     },
                     "content": {
                         "type": "string",
@@ -2205,7 +2209,8 @@ class GoogleDocsTool(BaseTool):
             parameters["action"] = action
         else:
             raise ValueError(
-                "Missing required parameter 'action'. Provide 'list_documents', 'get_document', 'create_document', or 'append_text'."
+                "Missing required parameter 'action'. Provide 'list_documents', 'get_document', "
+                "'create_document', 'append_text', or 'delete_document'."
             )
 
         required_scopes = self._required_scopes_for_action(action)
@@ -2234,11 +2239,17 @@ class GoogleDocsTool(BaseTool):
                     if not parameters.get("title"):
                         raise ValueError("Google Docs create_document action requires 'title'.")
                     return self._create_document(docs_service, credentials, parameters)
+                if action == "delete_document":
+                    if not parameters.get("document_id"):
+                        raise ValueError("Google Docs delete_document action requires 'document_id'.")
+                    drive_service = build("drive", "v3", credentials=credentials, cache_discovery=False)
+                    return self._delete_document(drive_service, parameters["document_id"])
                 if action == "list_documents":
                     return self._list_documents(credentials, parameters)
 
                 raise ValueError(
-                    "Unknown Google Docs action. Supported actions are 'list_documents', 'get_document', 'append_text', and 'create_document'."
+                    "Unknown Google Docs action. Supported actions are 'list_documents', 'get_document', "
+                    "'append_text', 'create_document', and 'delete_document'."
                 )
             except HttpError as exc:
                 last_error = exc
@@ -2269,6 +2280,8 @@ class GoogleDocsTool(BaseTool):
             return None
         if parameters.get("document_id") and parameters.get("content"):
             return "append_text"
+        if parameters.get("document_id") and str(parameters.get("delete", "")).lower() in {"true", "1", "yes"}:
+            return "delete_document"
         if parameters.get("document_id"):
             return "get_document"
         if parameters.get("title"):
@@ -2282,6 +2295,8 @@ class GoogleDocsTool(BaseTool):
             return GoogleDocsAppendTextTool.REQUIRED_SCOPES
         if action == "create_document":
             return GoogleDocsCreateDocumentTool.REQUIRED_SCOPES
+        if action == "delete_document":
+            return GoogleDocsDeleteDocumentTool.REQUIRED_SCOPES
         if action == "list_documents":
             return GoogleDocsListDocumentsTool.REQUIRED_SCOPES
         return GOOGLE_TOOL_SCOPE_MAP.get("google_docs", [])
@@ -2398,6 +2413,14 @@ class GoogleDocsTool(BaseTool):
         return {
             "count": len(documents),
             "documents": documents,
+        }
+
+    @staticmethod
+    def _delete_document(drive_service, document_id: str) -> Dict[str, Any]:
+        drive_service.files().delete(fileId=document_id).execute()
+        return {
+            "document_id": document_id,
+            "deleted": True,
         }
 
     @staticmethod
@@ -2561,6 +2584,29 @@ class GoogleDocsAppendTextTool(GoogleDocsActionTool):
         )
 
 
+class GoogleDocsDeleteDocumentTool(GoogleDocsActionTool):
+    REQUIRED_SCOPES = [
+        "https://www.googleapis.com/auth/drive.file",
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="google_docs_delete_document",
+            description="Delete a Google Doc by document ID.",
+            action="delete_document",
+            schema={
+                "type": "object",
+                "properties": {
+                    "document_id": {
+                        "type": "string",
+                        "description": "Document ID to delete.",
+                    }
+                },
+                "required": ["document_id"],
+            },
+        )
+
+
 GOOGLE_TOOL_SCOPE_MAP: Dict[str, List[str]] = {
     "gmail": [
         "https://www.googleapis.com/auth/gmail.readonly",
@@ -2603,4 +2649,5 @@ GOOGLE_TOOL_SCOPE_MAP: Dict[str, List[str]] = {
     "google_docs_get_document": GoogleDocsGetDocumentTool.REQUIRED_SCOPES,
     "google_docs_create_document": GoogleDocsCreateDocumentTool.REQUIRED_SCOPES,
     "google_docs_append_text": GoogleDocsAppendTextTool.REQUIRED_SCOPES,
+    "google_docs_delete_document": GoogleDocsDeleteDocumentTool.REQUIRED_SCOPES,
 }

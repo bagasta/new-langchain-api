@@ -18,6 +18,7 @@ from app.services.agent_service import AgentService
 from app.services.execution_service import ExecutionService
 from app.services.embedding_service import EmbeddingService
 from app.services.auth_service import AuthService, DEFAULT_GOOGLE_SCOPES, normalize_scopes
+from app.tools.google_tools import GOOGLE_TOOL_SCOPE_MAP
 from app.services.tool_service import ToolService
 from app.services.upload_service import UploadService
 from app.models import User, ExecutionStatus
@@ -124,10 +125,20 @@ async def get_agent(
             continue
         google_scopes.extend(token.scope or [])
 
+    dedup_scopes = normalize_scopes(google_scopes)
+    scope_set = set(dedup_scopes)
+
+    google_tool_names: List[str] = []
+    for tool_name, required_scopes in GOOGLE_TOOL_SCOPE_MAP.items():
+        if not required_scopes:
+            continue
+        if set(required_scopes).issubset(scope_set):
+            google_tool_names.append(tool_name)
+
+    google_tool_names.sort()
+
     scoped_agent = AgentResponse.model_validate(agent, from_attributes=True)
-    return scoped_agent.model_copy(
-        update={"google_tools": normalize_scopes(google_scopes)}
-    )
+    return scoped_agent.model_copy(update={"google_tools": google_tool_names})
 
 
 @router.put("/{agent_id}", response_model=AgentResponse)

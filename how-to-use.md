@@ -355,7 +355,7 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
             "gmail_get_message", "gmail_read_messages", "gmail_list_messages", "gmail_send_message", "gmail_create_draft",
             "google_calendar_list_events", "google_calendar_create_event", "google_calendar_get_event",
             "google_sheets_create_spreadsheet", "google_sheets_update_values", "google_sheets_get_values",
-            "google_docs_list_documents", "google_docs_get_document", "google_docs_create_document", "google_docs_append_text",
+            "google_docs_list_documents", "google_docs_get_document", "google_docs_create_document", "google_docs_append_text", "google_docs_delete_document",
             "google_docs", "google_sheets_list_spreadsheets"
           ]
         }'
@@ -402,13 +402,13 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
             "gmail_get_message", "gmail_read_messages", "gmail_list_messages", "gmail_send_message", "gmail_create_draft",
             "google_calendar_list_events", "google_calendar_create_event", "google_calendar_get_event",
             "google_sheets_create_spreadsheet", "google_sheets_update_values", "google_sheets_get_values",
-            "google_docs_list_documents", "google_docs_get_document", "google_docs_create_document", "google_docs_append_text",
+            "google_docs_list_documents", "google_docs_get_document", "google_docs_create_document", "google_docs_append_text", "google_docs_delete_document",
             "google_docs", "google_sheets_list_spreadsheets"
           ],
           "config": {
             "llm_model": "gpt-4o-mini",
             "temperature": 0.5,
-            "system_prompt": "Kamu adalah assistant pribadi saya yang dapat menggunakan semua tools ini: gmail_get_message, gmail_read_messages, gmail_list_messages, gmail_send_message, gmail_create_draft, google_calendar_list_events, google_calendar_create_event, google_calendar_get_event, google_sheets_create_spreadsheet , google_sheets_update_values, google_sheets_get_values, google_docs_list_documents, google_docs_get_document, google_docs_create_document, and google_docs_append_text, google_sheets_list_spreadsheets, google_docs"
+            "system_prompt": "Kamu adalah assistant pribadi saya yang dapat menggunakan semua tools ini: gmail_get_message, gmail_read_messages, gmail_list_messages, gmail_send_message, gmail_create_draft, google_calendar_list_events, google_calendar_create_event, google_calendar_get_event, google_sheets_create_spreadsheet , google_sheets_update_values, google_sheets_get_values, google_docs_list_documents, google_docs_get_document, google_docs_create_document, google_docs_append_text, google_docs_delete_document, google_sheets_list_spreadsheets, google_docs"
           },
           "mcp_servers": {
             "calculator_sse": {
@@ -436,7 +436,7 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
     -H "Authorization: Bearer $TOKEN"
   ```
 
-  The response now includes `google_tools`, which contains the Google OAuth scopes linked to this `agent_id` in the `auth_tokens` table. Example payload:
+  The response now includes `google_tools`, which contains the Google tool names inferred from the linked OAuth scopes for this `agent_id`. Example payload:
 
   ```json
   {
@@ -468,8 +468,10 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
       "fetch_web"
     ],
     "google_tools": [
-      "https://www.googleapis.com/auth/gmail.readonly",
-      "https://www.googleapis.com/auth/gmail.compose"
+      "gmail_get_message",
+      "gmail_read_messages",
+      "gmail_list_messages",
+      "gmail_send_message"
     ]
   }
   ```
