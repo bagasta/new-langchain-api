@@ -2158,6 +2158,10 @@ class GoogleDocsTool(BaseTool):
                         "type": "string",
                         "description": "Target document ID (get_document/append_text/update_text/delete_document)."
                     },
+                    "document_url": {
+                        "type": "string",
+                        "description": "Google Docs URL (used to extract document_id automatically)."
+                    },
                     "delete": {
                         "type": "boolean",
                         "description": "When true (with document_id), delete the document."
@@ -2239,27 +2243,23 @@ class GoogleDocsTool(BaseTool):
                 docs_service = build('docs', 'v1', credentials=credentials, cache_discovery=False)
 
                 if action == "get_document":
-                    if not parameters.get("document_id"):
-                        raise ValueError("Google Docs get_document action requires 'document_id'.")
-                    return self._get_document(docs_service, parameters["document_id"])
+                    document_id = self._resolve_document_id(parameters)
+                    return self._get_document(docs_service, document_id)
                 if action == "append_text":
-                    if not parameters.get("document_id"):
-                        raise ValueError("Google Docs append_text action requires 'document_id'.")
+                    document_id = self._resolve_document_id(parameters)
                     if not parameters.get("content"):
                         raise ValueError("Google Docs append_text action requires 'content'.")
-                    return self._append_text(docs_service, parameters["document_id"], str(parameters["content"]))
+                    return self._append_text(docs_service, document_id, str(parameters["content"]))
                 if action == "create_document":
                     if not parameters.get("title"):
                         raise ValueError("Google Docs create_document action requires 'title'.")
                     return self._create_document(docs_service, credentials, parameters)
                 if action == "delete_document":
-                    if not parameters.get("document_id"):
-                        raise ValueError("Google Docs delete_document action requires 'document_id'.")
+                    document_id = self._resolve_document_id(parameters)
                     drive_service = build("drive", "v3", credentials=credentials, cache_discovery=False)
-                    return self._delete_document(drive_service, parameters["document_id"])
+                    return self._delete_document(drive_service, document_id)
                 if action == "update_text":
-                    if not parameters.get("document_id"):
-                        raise ValueError("Google Docs update_text action requires 'document_id'.")
+                    document_id = self._resolve_document_id(parameters)
                     if not parameters.get("find_text"):
                         raise ValueError("Google Docs update_text action requires 'find_text'.")
                     if parameters.get("replace_text") is None:
@@ -2267,7 +2267,7 @@ class GoogleDocsTool(BaseTool):
                     match_case = bool(parameters.get("match_case", False))
                     return self._update_text(
                         docs_service,
-                        parameters["document_id"],
+                        document_id,
                         str(parameters["find_text"]),
                         str(parameters["replace_text"]),
                         match_case,
@@ -2308,11 +2308,11 @@ class GoogleDocsTool(BaseTool):
             return None
         if parameters.get("document_id") and parameters.get("content"):
             return "append_text"
-        if parameters.get("document_id") and parameters.get("find_text") is not None and parameters.get("replace_text") is not None:
+        if (parameters.get("document_id") or parameters.get("document_url")) and parameters.get("find_text") is not None and parameters.get("replace_text") is not None:
             return "update_text"
-        if parameters.get("document_id") and str(parameters.get("delete", "")).lower() in {"true", "1", "yes"}:
+        if (parameters.get("document_id") or parameters.get("document_url")) and str(parameters.get("delete", "")).lower() in {"true", "1", "yes"}:
             return "delete_document"
-        if parameters.get("document_id"):
+        if parameters.get("document_id") or parameters.get("document_url"):
             return "get_document"
         if parameters.get("title"):
             return "create_document"
@@ -2454,6 +2454,22 @@ class GoogleDocsTool(BaseTool):
             "document_id": document_id,
             "deleted": True,
         }
+
+    @staticmethod
+    def _resolve_document_id(parameters: Dict[str, Any]) -> str:
+        raw_id = parameters.get("document_id") or parameters.get("doc_id")
+        url = parameters.get("document_url") or parameters.get("url")
+
+        if raw_id:
+            return str(raw_id).strip()
+
+        if url:
+            match = re.search(r"/d/([a-zA-Z0-9_-]+)", str(url))
+            if match:
+                return match.group(1)
+            raise ValueError("Unable to extract document_id from document_url. Provide a Docs URL containing /d/<id> or set document_id directly.")
+
+        raise ValueError("Google Docs action requires 'document_id' or 'document_url'.")
 
     @staticmethod
     def _update_text(

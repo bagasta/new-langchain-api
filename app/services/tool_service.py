@@ -260,6 +260,8 @@ class ToolService:
             "google_docs_get_document": GoogleDocsGetDocumentTool,
             "google_docs_create_document": GoogleDocsCreateDocumentTool,
             "google_docs_append_text": GoogleDocsAppendTextTool,
+            "google_docs_update_text": GoogleDocsUpdateTextTool,
+            "google_docs_delete_document": GoogleDocsDeleteDocumentTool,
             "csv": CSVTool,
             "json": JSONTool,
             "file_list": FileListTool,

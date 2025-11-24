@@ -363,6 +363,8 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
 
   All fields are optional—omit anything you do not want to change. Providing only `config.system_prompt` updates the system message without resetting other LLM settings. `mcp_tools` controls which MCP/remote tools an agent may call at runtime, while `google_tools` selects the Google/LangChain tools that require OAuth scopes.
 
+  **Tip:** Untuk Google Docs actions (get/append/update/delete), sertakan `document_id` atau `document_url` (mis. `https://docs.google.com/document/d/<id>/edit`). Sistem akan otomatis mengekstrak `document_id` dari URL jika disediakan.
+
   If you want every agent to access tools hosted on your FastMCP server, declare the following environment variables before starting the API (see `mcp-server.md`). Streamable HTTP is preferred, with SSE as an optional fallback:
 
   ```

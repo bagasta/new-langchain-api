@@ -140,6 +140,8 @@ curl -X POST "http://localhost:8000/api/v1/agents/{agent_id}/execute" \
   }'
 ```
 
+> Untuk Google Docs tools (get/append/update/delete), sertakan `document_id` atau `document_url` (mis. `https://docs.google.com/document/d/<id>/edit`). Jika URL diberikan, API akan mengekstrak `document_id` otomatis.
+
 > To expose tools from the FastMCP server described in `mcp-server.md`, configure the API process with `MCP_HTTP_URL`, `MCP_HTTP_TOKEN`, and (optionally) `MCP_HTTP_ALLOWED_TOOLS` (plus `MCP_SSE_*` for fallback). The execution service will fetch the remote tool list and merge it with built-in tools for every agent run.
 
 ### Get Execution History
