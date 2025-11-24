@@ -2145,18 +2145,18 @@ class GoogleDocsTool(BaseTool):
     def __init__(self):
         super().__init__(
             name="google_docs",
-            description="List, read, edit, and delete Google Docs documents.",
+            description="List, read, edit, replace, and delete Google Docs documents.",
             schema={
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["list_documents", "get_document", "append_text", "create_document", "delete_document"],
+                        "enum": ["list_documents", "get_document", "append_text", "create_document", "delete_document", "update_text"],
                         "description": "Docs action to perform."
                     },
                     "document_id": {
                         "type": "string",
-                        "description": "Target document ID (get_document/append_text/delete_document)."
+                        "description": "Target document ID (get_document/append_text/update_text/delete_document)."
                     },
                     "delete": {
                         "type": "boolean",
@@ -2165,6 +2165,19 @@ class GoogleDocsTool(BaseTool):
                     "content": {
                         "type": "string",
                         "description": "Text to insert or append."
+                    },
+                    "find_text": {
+                        "type": "string",
+                        "description": "Text to find when using update_text."
+                    },
+                    "replace_text": {
+                        "type": "string",
+                        "description": "Replacement text when using update_text."
+                    },
+                    "match_case": {
+                        "type": "boolean",
+                        "description": "Whether to match case when replacing text (update_text).",
+                        "default": False
                     },
                     "title": {
                         "type": "string",
@@ -2244,12 +2257,27 @@ class GoogleDocsTool(BaseTool):
                         raise ValueError("Google Docs delete_document action requires 'document_id'.")
                     drive_service = build("drive", "v3", credentials=credentials, cache_discovery=False)
                     return self._delete_document(drive_service, parameters["document_id"])
+                if action == "update_text":
+                    if not parameters.get("document_id"):
+                        raise ValueError("Google Docs update_text action requires 'document_id'.")
+                    if not parameters.get("find_text"):
+                        raise ValueError("Google Docs update_text action requires 'find_text'.")
+                    if parameters.get("replace_text") is None:
+                        raise ValueError("Google Docs update_text action requires 'replace_text'.")
+                    match_case = bool(parameters.get("match_case", False))
+                    return self._update_text(
+                        docs_service,
+                        parameters["document_id"],
+                        str(parameters["find_text"]),
+                        str(parameters["replace_text"]),
+                        match_case,
+                    )
                 if action == "list_documents":
                     return self._list_documents(credentials, parameters)
 
                 raise ValueError(
                     "Unknown Google Docs action. Supported actions are 'list_documents', 'get_document', "
-                    "'append_text', 'create_document', and 'delete_document'."
+                    "'append_text', 'create_document', 'update_text', and 'delete_document'."
                 )
             except HttpError as exc:
                 last_error = exc
@@ -2280,6 +2308,8 @@ class GoogleDocsTool(BaseTool):
             return None
         if parameters.get("document_id") and parameters.get("content"):
             return "append_text"
+        if parameters.get("document_id") and parameters.get("find_text") is not None and parameters.get("replace_text") is not None:
+            return "update_text"
         if parameters.get("document_id") and str(parameters.get("delete", "")).lower() in {"true", "1", "yes"}:
             return "delete_document"
         if parameters.get("document_id"):
@@ -2297,6 +2327,8 @@ class GoogleDocsTool(BaseTool):
             return GoogleDocsCreateDocumentTool.REQUIRED_SCOPES
         if action == "delete_document":
             return GoogleDocsDeleteDocumentTool.REQUIRED_SCOPES
+        if action == "update_text":
+            return GoogleDocsUpdateTextTool.REQUIRED_SCOPES
         if action == "list_documents":
             return GoogleDocsListDocumentsTool.REQUIRED_SCOPES
         return GOOGLE_TOOL_SCOPE_MAP.get("google_docs", [])
@@ -2421,6 +2453,38 @@ class GoogleDocsTool(BaseTool):
         return {
             "document_id": document_id,
             "deleted": True,
+        }
+
+    @staticmethod
+    def _update_text(
+        docs_service,
+        document_id: str,
+        find_text: str,
+        replace_text: str,
+        match_case: bool = False,
+    ) -> Dict[str, Any]:
+        requests = [
+            {
+                "replaceAllText": {
+                    "containsText": {"text": find_text, "matchCase": bool(match_case)},
+                    "replaceText": replace_text,
+                }
+            }
+        ]
+        response = docs_service.documents().batchUpdate(
+            documentId=document_id, body={"requests": requests}
+        ).execute()
+
+        occurrences_changed = 0
+        for reply in response.get("replies", []):
+            details = reply.get("replaceAllText")
+            if details and isinstance(details.get("occurrencesChanged"), int):
+                occurrences_changed += details["occurrencesChanged"]
+
+        return {
+            "document_id": document_id,
+            "occurrences_changed": occurrences_changed,
+            "match_case": bool(match_case),
         }
 
     @staticmethod
@@ -2584,6 +2648,43 @@ class GoogleDocsAppendTextTool(GoogleDocsActionTool):
         )
 
 
+class GoogleDocsUpdateTextTool(GoogleDocsActionTool):
+    REQUIRED_SCOPES = [
+        "https://www.googleapis.com/auth/documents",
+        "https://www.googleapis.com/auth/drive.file",
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="google_docs_update_text",
+            description="Replace text inside a Google Doc (find/replace).",
+            action="update_text",
+            schema={
+                "type": "object",
+                "properties": {
+                    "document_id": {
+                        "type": "string",
+                        "description": "Document ID to update.",
+                    },
+                    "find_text": {
+                        "type": "string",
+                        "description": "Text to search for (case-insensitive by default).",
+                    },
+                    "replace_text": {
+                        "type": "string",
+                        "description": "Text to replace matches with.",
+                    },
+                    "match_case": {
+                        "type": "boolean",
+                        "description": "Set true to perform a case-sensitive replace.",
+                        "default": False,
+                    },
+                },
+                "required": ["document_id", "find_text", "replace_text"],
+            },
+        )
+
+
 class GoogleDocsDeleteDocumentTool(GoogleDocsActionTool):
     REQUIRED_SCOPES = [
         "https://www.googleapis.com/auth/drive.file",
@@ -2649,5 +2750,6 @@ GOOGLE_TOOL_SCOPE_MAP: Dict[str, List[str]] = {
     "google_docs_get_document": GoogleDocsGetDocumentTool.REQUIRED_SCOPES,
     "google_docs_create_document": GoogleDocsCreateDocumentTool.REQUIRED_SCOPES,
     "google_docs_append_text": GoogleDocsAppendTextTool.REQUIRED_SCOPES,
+    "google_docs_update_text": GoogleDocsUpdateTextTool.REQUIRED_SCOPES,
     "google_docs_delete_document": GoogleDocsDeleteDocumentTool.REQUIRED_SCOPES,
 }

@@ -28,6 +28,7 @@ from app.tools.google_tools import (
     GoogleDocsGetDocumentTool,
     GoogleDocsCreateDocumentTool,
     GoogleDocsAppendTextTool,
+    GoogleDocsUpdateTextTool,
     GoogleDocsDeleteDocumentTool,
     GOOGLE_TOOL_SCOPE_MAP,
 )
@@ -70,6 +71,7 @@ class ToolService:
             GoogleDocsGetDocumentTool(),
             GoogleDocsCreateDocumentTool(),
             GoogleDocsAppendTextTool(),
+            GoogleDocsUpdateTextTool(),
             GoogleDocsDeleteDocumentTool(),
             CSVTool(),
             JSONTool(),

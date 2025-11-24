@@ -56,4 +56,7 @@ Daftar scope OAuth yang digunakan oleh setiap Google tool di API (berdasarkan `G
 - `google_docs_append_text`:  
   - `https://www.googleapis.com/auth/documents`  
   - `https://www.googleapis.com/auth/drive.file`
+- `google_docs_update_text`:  
+  - `https://www.googleapis.com/auth/documents`  
+  - `https://www.googleapis.com/auth/drive.file`
 - `google_docs_delete_document`: `https://www.googleapis.com/auth/drive.file`
