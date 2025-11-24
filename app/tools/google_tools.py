@@ -2680,7 +2680,9 @@ class GoogleDocsUpdateTextTool(GoogleDocsActionTool):
                         "default": False,
                     },
                 },
-                "required": ["document_id", "find_text", "replace_text"],
+                # Keep runtime validation in execute, but avoid LangChain/Pydantic
+                # hard-failing before the tool can return a useful message.
+                "required": ["find_text", "replace_text"],
             },
         )
 
