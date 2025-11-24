@@ -350,12 +350,18 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
           "config": {
             "system_prompt": "Keep conversations concise and always cite sources."
           },
-          "allowed_tools": ["web_search", "calculator"],
-          "tools": ["web_search", "calculator"]
+          "mcp_tools": ["web_search", "web_fetch", "pdf_generate", "docx_generate", "deep_research", "google_calendar", "send_reminder", "send_messages"],
+          "google_tools": [
+            "gmail_get_message", "gmail_read_messages", "gmail_list_messages", "gmail_send_message", "gmail_create_draft",
+            "google_calendar_list_events", "google_calendar_create_event", "google_calendar_get_event",
+            "google_sheets_create_spreadsheet", "google_sheets_update_values", "google_sheets_get_values",
+            "google_docs_list_documents", "google_docs_get_document", "google_docs_create_document", "google_docs_append_text",
+            "google_docs", "google_sheets_list_spreadsheets"
+          ]
         }'
   ```
 
-  All fields are optional—omit anything you do not want to change. Providing only `config.system_prompt` updates the system message without resetting other LLM settings. `allowed_tools` controls which MCP/remote tools an agent may call at runtime, while `tools` updates the core LangChain tool list.
+  All fields are optional—omit anything you do not want to change. Providing only `config.system_prompt` updates the system message without resetting other LLM settings. `mcp_tools` controls which MCP/remote tools an agent may call at runtime, while `google_tools` selects the Google/LangChain tools that require OAuth scopes.
 
   If you want every agent to access tools hosted on your FastMCP server, declare the following environment variables before starting the API (see `mcp-server.md`). Streamable HTTP is preferred, with SSE as an optional fallback:
 
@@ -387,25 +393,30 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
   Once the environment variables are in place, creating an agent that can use MCP tools is the same as creating any other agent—the MCP tools are added automatically at runtime. A minimal example:
 
   ```bash
-  curl -X POST "$BASE_URL$API_PREFIX/agents/" \
+   curl -X POST "$BASE_URL$API_PREFIX/agents/" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{
-          "name": "Research Assistant (MCP)",
-          "google_tools": ["gmail"],
+          "name": "Agent Google 4",
+          "google_tools": [
+            "gmail_get_message", "gmail_read_messages", "gmail_list_messages", "gmail_send_message", "gmail_create_draft",
+            "google_calendar_list_events", "google_calendar_create_event", "google_calendar_get_event",
+            "google_sheets_create_spreadsheet", "google_sheets_update_values", "google_sheets_get_values",
+            "google_docs_list_documents", "google_docs_get_document", "google_docs_create_document", "google_docs_append_text",
+            "google_docs", "google_sheets_list_spreadsheets"
+          ],
           "config": {
             "llm_model": "gpt-4o-mini",
             "temperature": 0.5,
-            "system_prompt": "You can call remote tools to calculate, fetch, or search information."
+            "system_prompt": "Kamu adalah assistant pribadi saya yang dapat menggunakan semua tools ini: gmail_get_message, gmail_read_messages, gmail_list_messages, gmail_send_message, gmail_create_draft, google_calendar_list_events, google_calendar_create_event, google_calendar_get_event, google_sheets_create_spreadsheet , google_sheets_update_values, google_sheets_get_values, google_docs_list_documents, google_docs_get_document, google_docs_create_document, and google_docs_append_text, google_sheets_list_spreadsheets, google_docs"
           },
           "mcp_servers": {
-            "langchain_mcp": {
-              "transport": "streamable_http",
-              "url": "http://localhost:8080/mcp/stream",
-              "headers": {"Authorization": "Bearer jango"}
+            "calculator_sse": {
+              "transport": "sse",
+              "url": "http://0.0.0.0:8190/sse"
             }
           },
-          "mcp_tools": ["web_search", "web_fetch", "pdf_generate", "docx_generate", "deep_research", "google_calendar", "send_reminder", "send_messages"]
+          "mcp_tools": ["web_search"]
         }'
   ```
 
@@ -423,6 +434,44 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
   ```bash
   curl "$BASE_URL$API_PREFIX/agents/AGENT_ID" \
     -H "Authorization: Bearer $TOKEN"
+  ```
+
+  The response now includes `google_tools`, which contains the Google OAuth scopes linked to this `agent_id` in the `auth_tokens` table. Example payload:
+
+  ```json
+  {
+    "id": "66aa4e6c-f7c3-4356-a7a8-09ffb4aab067",
+    "user_id": "f6939327-881d-4e85-91b0-29ec3ddcbd60",
+    "name": "CS Mukenaku",
+    "config": {
+      "llm_model": "gpt-4o-mini",
+      "max_tokens": 1500,
+      "memory_type": "buffer",
+      "temperature": 0.1,
+      "system_prompt": "Kamu Hebat",
+      "reasoning_strategy": "react"
+    },
+    "status": "active",
+    "created_at": "2025-11-24T02:24:47.581490Z",
+    "updated_at": "2025-11-24T02:35:54.610572Z",
+    "mcp_servers": {
+      "calculator_sse": {
+        "env": {},
+        "url": "http://0.0.0.0:8190/sse",
+        "args": [],
+        "headers": {},
+        "transport": "sse"
+      }
+    },
+    "mcp_tools": [
+      "web_search",
+      "fetch_web"
+    ],
+    "google_tools": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.compose"
+    ]
+  }
   ```
 
 - **DELETE /{agent_id}**
@@ -517,6 +566,9 @@ Each step reports whether it passed, failed, or was skipped, giving you a quick 
             "required": ["query"]
           }
         }'
+
+
+        
   ```
 
 - **DELETE /{tool_id}**
@@ -718,7 +770,8 @@ curl -X POST "$BASE_URL$API_PREFIX/agents/" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Email Assistant",
-    "tools": ["gmail", "google_sheets"],
+    "google_tools": ["gmail_get_message", "gmail_read_messages", "gmail_list_messages", "gmail_send_message", "gmail_create_draft"],
+    "mcp_tools": ["web_search"],
     "config": {...}
   }'
 ```

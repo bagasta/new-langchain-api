@@ -169,10 +169,21 @@ class AgentResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
     mcp_servers: Dict[str, Any] = Field(default_factory=dict)
-    allowed_tools: List[str] = Field(default_factory=list)
+    # Keep the database column name internally but expose as mcp_tools in API responses
+    allowed_tools: List[str] = Field(default_factory=list, exclude=True)
+    mcp_tools: List[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("mcp_tools", "allowed_tools"),
+    )
+    google_tools: List[str] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def _populate_mcp_tools(self) -> "AgentResponse":
+        if not self.mcp_tools and self.allowed_tools:
+            self.mcp_tools = list(self.allowed_tools)
+        return self
 
 
 class AgentExecuteRequest(BaseModel):

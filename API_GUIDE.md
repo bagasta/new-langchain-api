@@ -40,7 +40,8 @@ curl -X POST "http://localhost:8000/api/v1/agents" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Email Assistant",
-    "tools": ["gmail", "google_sheets"],
+    "google_tools": ["gmail_get_message", "gmail_read_messages", "gmail_list_messages", "gmail_send_message", "gmail_create_draft"],
+    "mcp_tools": ["web_search"],
     "config": {
       "llm_model": "gpt-3.5-turbo",
       "temperature": 0.7,
@@ -54,27 +55,31 @@ curl -X POST "http://localhost:8000/api/v1/agents" \
 Example with an MCP server over streamable HTTP:
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/agents" \\
-  -H "Authorization: Bearer YOUR_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-        "name": "Streamable HTTP MCP Agent",
-        "tools": [],
-        "config": {
-          "llm_model": "gpt-4o-mini",
-          "temperature": 0.5,
-          "max_tokens": 1000,
-          "system_prompt": "You can call remote MCP tools (calculator, web_fetch, etc.) whenever it helps."
-        },
-        "mcp_servers": {
-          "langchain_mcp": {
-            "transport": "streamable_http",
-            "url": "http://localhost:8080/mcp/stream",
-            "headers": {"Authorization": "Bearer jango"}
-          }
-        },
-        "allowed_tools": ["calculator", "web_fetch", "web_search", "pdf_generate"]
-      }'
+curl -X POST "$BASE_URL$API_PREFIX/agents/" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+          "name": "Agent Google 4",
+          "google_tools": [
+            "gmail_get_message", "gmail_read_messages", "gmail_list_messages", "gmail_send_message", "gmail_create_draft",
+            "google_calendar_list_events", "google_calendar_create_event", "google_calendar_get_event",
+            "google_sheets_create_spreadsheet", "google_sheets_update_values", "google_sheets_get_values",
+            "google_docs_list_documents", "google_docs_get_document", "google_docs_create_document", "google_docs_append_text",
+            "google_docs", "google_sheets_list_spreadsheets"
+          ],
+          "config": {
+            "llm_model": "gpt-4o-mini",
+            "temperature": 0.5,
+            "system_prompt": "Kamu adalah assistant pribadi saya yang dapat menggunakan semua tools ini: gmail_get_message, gmail_read_messages, gmail_list_messages, gmail_send_message, gmail_create_draft, google_calendar_list_events, google_calendar_create_event, google_calendar_get_event, google_sheets_create_spreadsheet , google_sheets_update_values, google_sheets_get_values, google_docs_list_documents, google_docs_get_document, google_docs_create_document, and google_docs_append_text, google_sheets_list_spreadsheets, google_docs"
+          },
+          "mcp_servers": {
+            "calculator_sse": {
+              "transport": "sse",
+              "url": "http://0.0.0.0:8190/sse"
+            }
+          },
+          "mcp_tools": ["web_search"]
+        }'
 ```
 ### List Agents
 
@@ -98,7 +103,17 @@ curl -X PUT "http://localhost:8000/api/v1/agents/{agent_id}" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Updated Email Assistant",
-    "tools": ["gmail"]
+    "config": {
+      "system_prompt": "Keep conversations concise and always cite sources."
+    },
+    "mcp_tools": ["web_search", "web_fetch", "pdf_generate", "docx_generate", "deep_research", "google_calendar", "send_reminder", "send_messages"],
+    "google_tools": [
+      "gmail_get_message", "gmail_read_messages", "gmail_list_messages", "gmail_send_message", "gmail_create_draft",
+      "google_calendar_list_events", "google_calendar_create_event", "google_calendar_get_event",
+      "google_sheets_create_spreadsheet", "google_sheets_update_values", "google_sheets_get_values",
+      "google_docs_list_documents", "google_docs_get_document", "google_docs_create_document", "google_docs_append_text",
+      "google_docs", "google_sheets_list_spreadsheets"
+    ]
   }'
 ```
 
@@ -515,13 +530,14 @@ class LangChainAPI:
         self.headers = {"Authorization": f"Bearer {self.token}"}
         return self.token
 
-    def create_agent(self, name, tools=None, config=None):
+    def create_agent(self, name, google_tools=None, mcp_tools=None, config=None):
         response = requests.post(
             f"{self.base_url}/api/v1/agents",
             headers=self.headers,
             json={
                 "name": name,
-                "tools": tools or [],
+                "google_tools": google_tools or [],
+                "mcp_tools": mcp_tools or [],
                 "config": config or {}
             }
         )
@@ -544,7 +560,8 @@ api.login("user@example.com", "password")
 
 agent = api.create_agent(
     name="Email Assistant",
-    tools=["gmail"],
+    google_tools=["gmail_get_message", "gmail_read_messages"],
+    mcp_tools=["web_search"],
     config={"llm_model": "gpt-3.5-turbo"}
 )
 

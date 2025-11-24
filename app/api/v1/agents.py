@@ -17,7 +17,7 @@ from app.core.deps import (
 from app.services.agent_service import AgentService
 from app.services.execution_service import ExecutionService
 from app.services.embedding_service import EmbeddingService
-from app.services.auth_service import AuthService, DEFAULT_GOOGLE_SCOPES
+from app.services.auth_service import AuthService, DEFAULT_GOOGLE_SCOPES, normalize_scopes
 from app.services.tool_service import ToolService
 from app.services.upload_service import UploadService
 from app.models import User, ExecutionStatus
@@ -112,11 +112,22 @@ async def get_user_agents(
 async def get_agent(
     agent_id: UUID,
     current_user: User = Depends(get_api_key_user),
-    agent_service: AgentService = Depends(get_agent_service)
+    agent_service: AgentService = Depends(get_agent_service),
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """Get a specific agent"""
     agent = agent_service.get_agent(agent_id, current_user.id)
-    return agent
+    tokens = auth_service.get_user_auth_tokens(str(current_user.id), str(agent_id))
+    google_scopes: List[str] = []
+    for token in tokens:
+        if token.service != "google":
+            continue
+        google_scopes.extend(token.scope or [])
+
+    scoped_agent = AgentResponse.model_validate(agent, from_attributes=True)
+    return scoped_agent.model_copy(
+        update={"google_tools": normalize_scopes(google_scopes)}
+    )
 
 
 @router.put("/{agent_id}", response_model=AgentResponse)
