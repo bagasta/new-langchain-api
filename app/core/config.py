@@ -39,9 +39,9 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000", "https://unprized-loriann-ceaselessly.ngrok-free.dev/"]
 
     # Database pool tuning
-    DB_POOL_SIZE: int = 10
+    DB_POOL_SIZE: int = 40
     DB_MAX_OVERFLOW: int = 20
-    DB_POOL_TIMEOUT: int = 10
+    DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 300
 
     # Logging
