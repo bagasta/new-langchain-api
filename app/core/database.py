@@ -1,7 +1,6 @@
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.models.base import Base
@@ -11,8 +10,10 @@ from app.core.logging import logger
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
-    pool_recycle=300,
-    poolclass=NullPool,
+    pool_recycle=settings.DB_POOL_RECYCLE,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_timeout=settings.DB_POOL_TIMEOUT,
     echo=settings.LOG_LEVEL == "DEBUG",
 )
 

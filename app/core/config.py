@@ -1,10 +1,17 @@
 import json
 from typing import Optional, List
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        extra="ignore",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+    )
+
     # API Settings
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "LangChain Agent API"
@@ -30,6 +37,12 @@ class Settings(BaseSettings):
 
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000", "https://unprized-loriann-ceaselessly.ngrok-free.dev/"]
+
+    # Database pool tuning
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_TIMEOUT: int = 10
+    DB_POOL_RECYCLE: int = 300
 
     # Logging
     LOG_LEVEL: str = "INFO"
@@ -72,10 +85,5 @@ class Settings(BaseSettings):
                     pass
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-
 
 settings = Settings()

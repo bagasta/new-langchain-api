@@ -17,18 +17,32 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("api_keys"):
+        return
+
+    columns = {col["name"]: col for col in inspector.get_columns("api_keys")}
+    is_active_col = columns.get("is_active")
+    if not is_active_col:
+        return
+
+    if isinstance(is_active_col["type"], sa.Boolean):
+        return
+
     # Fix the is_active column type from String to Boolean
-    # First update existing data to convert string 'true' to boolean true
     op.execute("UPDATE api_keys SET is_active = true WHERE is_active = 'true'")
     op.execute("UPDATE api_keys SET is_active = false WHERE is_active = 'false'")
 
-    # Then alter the column type
-    op.alter_column('api_keys', 'is_active',
-                    existing_type=sa.String(),
-                    type_=sa.Boolean(),
-                    existing_default=True,
-                    existing_nullable=False,
-                    postgresql_using='is_active::boolean')
+    op.alter_column(
+        "api_keys",
+        "is_active",
+        existing_type=sa.String(),
+        type_=sa.Boolean(),
+        existing_default=True,
+        existing_nullable=False,
+        postgresql_using="is_active::boolean",
+    )
 
 
 def downgrade() -> None:

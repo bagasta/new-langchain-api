@@ -1,0 +1,131 @@
+services:
+  app:
+    build: .
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --timeout-keep-alive 120"
+    env_file:
+      - .env
+      - .env.docker
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-5}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-300}
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
+
+  db:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_DB: langchain_api
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-langchain}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d langchain_api"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - internal
+
+  pgbouncer:
+    image: edoburu/pgbouncer
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-langchain}
+      DB_NAME: ${DB_NAME:-langchain_api}
+      MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-5000}
+      DEFAULT_POOL_SIZE: ${PGBOUNCER_DEFAULT_POOL_SIZE:-30}
+      POOL_MODE: transaction
+      AUTH_TYPE: ${PGBOUNCER_AUTH_TYPE:-scram-sha-256}
+      LISTEN_PORT: ${PGBOUNCER_LISTEN_PORT:-5432}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "20", "1", "--loglevel", "warning"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - internal
+
+  nginx:
+    image: nginx:1.25-alpine
+    depends_on:
+      - app
+    volumes:
+      - ./deploy/nginx/docker.dev.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "${PUBLISHED_PORT:-18100}:8080"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.langchain-api-dev.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.langchain-api-dev.entrypoints=web"
+      - "traefik.http.services.langchain-api-dev.loadbalancer.server.port=${SERVICE_PORT:-8080}"
+      - "traefik.docker.network=${TRAEFIK_NETWORK}"
+    restart: unless-stopped
+    networks:
+      - internal
+      - traefik
+
+  app_replica:
+    image: new-langchain-api-app:latest
+    command: >
+      sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --timeout-keep-alive 120"
+    env_file:
+      - .env
+      - .env.docker
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-5}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-300}
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  internal:
+    driver: bridge
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK}

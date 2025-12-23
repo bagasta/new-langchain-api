@@ -96,6 +96,25 @@ def upgrade() -> None:
         )
         op.create_index(op.f("ix_auth_tokens_user_id"), "auth_tokens", ["user_id"], unique=False)
 
+    if not _has_table(bind, "api_keys"):
+        op.create_table(
+            "api_keys",
+            sa.Column("id", sa.UUID(), nullable=False),
+            sa.Column("user_id", sa.UUID(), nullable=False),
+            sa.Column("access_token", sa.String(), nullable=False),
+            sa.Column("plan_code", sa.Enum("PRO_M", "PRO_Y", "TRIAL", name="plan_code_enum"), nullable=False),
+            sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+            sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+            sa.Column("trial_ip", sa.String(length=45), nullable=True),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+            sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint("access_token"),
+        )
+        op.create_index(op.f("ix_api_keys_user_id"), "api_keys", ["user_id"], unique=False)
+        op.create_index(op.f("ix_api_keys_trial_ip"), "api_keys", ["trial_ip"], unique=False)
+
     if not _has_table(bind, "embeddings"):
         op.create_table(
             "embeddings",
@@ -120,6 +139,7 @@ def upgrade() -> None:
             sa.Column("status", sa.Enum("PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED", name="executionstatus"), nullable=True),
             sa.Column("duration_ms", sa.Integer(), nullable=True),
             sa.Column("error_message", sa.String(), nullable=True),
+            sa.Column("session_id", sa.String(length=255), nullable=True),
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=True),
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
             sa.PrimaryKeyConstraint("id"),

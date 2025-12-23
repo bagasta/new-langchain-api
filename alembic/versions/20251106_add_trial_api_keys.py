@@ -19,23 +19,40 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("api_keys"):
+        return
+
     op.execute("ALTER TYPE plan_code_enum ADD VALUE IF NOT EXISTS 'TRIAL'")
 
-    op.add_column(
-        "api_keys",
-        sa.Column("trial_ip", sa.String(length=45), nullable=True),
-    )
-    op.create_index(
-        "ix_api_keys_trial_ip",
-        "api_keys",
-        ["trial_ip"],
-        unique=False,
-    )
+    columns = {col["name"] for col in inspector.get_columns("api_keys")}
+    if "trial_ip" not in columns:
+        op.add_column(
+            "api_keys",
+            sa.Column("trial_ip", sa.String(length=45), nullable=True),
+        )
+        op.create_index(
+            "ix_api_keys_trial_ip",
+            "api_keys",
+            ["trial_ip"],
+            unique=False,
+        )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_api_keys_trial_ip", table_name="api_keys")
-    op.drop_column("api_keys", "trial_ip")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("api_keys"):
+        return
+
+    indexes = {idx["name"] for idx in inspector.get_indexes("api_keys")}
+    if "ix_api_keys_trial_ip" in indexes:
+        op.drop_index("ix_api_keys_trial_ip", table_name="api_keys")
+
+    columns = {col["name"] for col in inspector.get_columns("api_keys")}
+    if "trial_ip" in columns:
+        op.drop_column("api_keys", "trial_ip")
 
     # Remove any rows using the trial plan before reverting the ENUM
     op.execute("DELETE FROM api_keys WHERE plan_code = 'TRIAL'")

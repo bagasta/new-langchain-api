@@ -8,6 +8,7 @@ Create Date: 2025-11-15
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from typing import Iterable
 
 # revision identifiers, used by Alembic.
 revision = "add_agent_id_to_auth_tokens"
@@ -16,25 +17,51 @@ branch_labels = None
 depends_on = None
 
 
+def _has_fk(
+    fks: Iterable[dict],
+    constrained_columns: list[str],
+    referred_table: str,
+) -> bool:
+    constrained = set(constrained_columns)
+    return any(
+        set(fk.get("constrained_columns") or []) == constrained
+        and fk.get("referred_table") == referred_table
+        for fk in fks
+    )
+
+
 def upgrade() -> None:
-    op.add_column(
-        "auth_tokens",
-        sa.Column("agent_id", postgresql.UUID(as_uuid=True), nullable=True),
-    )
-    op.create_index(
-        op.f("ix_auth_tokens_agent_id"),
-        "auth_tokens",
-        ["agent_id"],
-        unique=False,
-    )
-    op.create_foreign_key(
-        "auth_tokens_agent_id_fkey",
-        "auth_tokens",
-        "agents",
-        ["agent_id"],
-        ["id"],
-        ondelete="CASCADE",
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    if inspector.has_table("auth_tokens"):
+        columns = {col["name"] for col in inspector.get_columns("auth_tokens")}
+        indexes = {idx["name"] for idx in inspector.get_indexes("auth_tokens")}
+        fks = inspector.get_foreign_keys("auth_tokens")
+
+        if "agent_id" not in columns:
+            op.add_column(
+                "auth_tokens",
+                sa.Column("agent_id", postgresql.UUID(as_uuid=True), nullable=True),
+            )
+
+        if "ix_auth_tokens_agent_id" not in indexes:
+            op.create_index(
+                op.f("ix_auth_tokens_agent_id"),
+                "auth_tokens",
+                ["agent_id"],
+                unique=False,
+            )
+
+        if not _has_fk(fks, ["agent_id"], "agents"):
+            op.create_foreign_key(
+                "auth_tokens_agent_id_fkey",
+                "auth_tokens",
+                "agents",
+                ["agent_id"],
+                ["id"],
+                ondelete="CASCADE",
+            )
 
 
 def downgrade() -> None:

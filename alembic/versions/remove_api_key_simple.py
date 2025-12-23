@@ -17,11 +17,22 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Drop the unique constraint first
-    op.drop_constraint('uq_users_api_key', 'users', type_='unique')
+    conn = op.get_bind()
+    constraints = {
+        row[0]
+        for row in conn.execute(
+            sa.text(
+                "SELECT conname FROM pg_constraint WHERE conrelid = 'users'::regclass"
+            )
+        )
+    }
+    columns = {col["name"] for col in sa.inspect(conn).get_columns("users")}
 
-    # Drop the api_key column
-    op.drop_column('users', 'api_key')
+    if "uq_users_api_key" in constraints:
+        op.drop_constraint("uq_users_api_key", "users", type_="unique")
+
+    if "api_key" in columns:
+        op.drop_column("users", "api_key")
 
 
 def downgrade() -> None:
