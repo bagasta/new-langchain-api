@@ -1,0 +1,3 @@
+This is a test document for load testing the RAG functionality of the LangChain Agent API.
+It contains some sample text to be chunked and embedded by the system.
+Locust will use this file to simulate document uploads.
