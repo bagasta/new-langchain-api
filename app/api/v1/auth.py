@@ -79,7 +79,7 @@ async def login(
                 detail="Provide an email address or phone number."
             )
 
-        user = auth_service.authenticate_user(contact, password)
+        user = await auth_service.authenticate_user(contact, password)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -134,7 +134,7 @@ async def register(
                 detail="Provide an email address or phone number."
             )
 
-        user = auth_service.create_user(contact, password)
+        user = await auth_service.create_user(contact, password)
 
         logger.info("User registered successfully", user_id=str(user.id))
 
@@ -298,7 +298,7 @@ async def process_google_callback(
             # Create user with random password (they'll use Google OAuth)
             import secrets
             temp_password = secrets.token_urlsafe(32)
-            user = auth_service.create_user(token_data["email"], temp_password)
+            user = await auth_service.create_user(token_data["email"], temp_password)
 
         # Save auth token
         auth_service.save_auth_token(str(user.id), token_data, state_agent)
@@ -385,7 +385,7 @@ async def generate_api_key(
 ):
     """Generate API key with plan-based expiration"""
     try:
-        api_key_data = auth_service.generate_api_key(
+        api_key_data = await auth_service.generate_api_key(
             identifier=request.username,
             password=request.password,
             plan_code=request.plan_code
@@ -450,7 +450,7 @@ async def update_api_key(
 ):
     """Update an existing API key by extending its expiration"""
     try:
-        result = auth_service.update_api_key(
+        result = await auth_service.update_api_key(
             identifier=request.username,
             password=request.password,
             access_token=request.access_token,

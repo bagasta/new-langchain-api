@@ -87,11 +87,17 @@ class ExecutionService:
     ) -> Execution:
         """Execute an agent with the given input"""
         try:
-            # Get agent and validate ownership
-            agent = self.db.query(Agent).filter(
-                Agent.id == agent_id,
-                Agent.user_id == user_id
-            ).first()
+            import asyncio
+            loop = asyncio.get_running_loop()
+
+            # Get agent and validate ownership (Offload DB)
+            def _get_agent():
+                return self.db.query(Agent).filter(
+                    Agent.id == agent_id,
+                    Agent.user_id == user_id
+                ).first()
+
+            agent = await loop.run_in_executor(None, _get_agent)
 
             if not agent:
                 raise HTTPException(
@@ -99,17 +105,20 @@ class ExecutionService:
                     detail="Agent not found"
                 )
 
-            # Create execution record
-            execution = Execution(
-                agent_id=agent_id,
-                input={"input": input_text, "parameters": parameters or {}},
-                status=ExecutionStatus.RUNNING,
-                session_id=session_id
-            )
+            # Create execution record (Offload DB)
+            def _create_execution():
+                execution = Execution(
+                    agent_id=agent_id,
+                    input={"input": input_text, "parameters": parameters or {}},
+                    status=ExecutionStatus.RUNNING,
+                    session_id=session_id
+                )
+                self.db.add(execution)
+                self.db.commit()
+                self.db.refresh(execution)
+                return execution
 
-            self.db.add(execution)
-            self.db.commit()
-            self.db.refresh(execution)
+            execution = await loop.run_in_executor(None, _create_execution)
 
             logger.info("Agent execution started", execution_id=str(execution.id), agent_id=str(agent_id))
 
@@ -118,13 +127,16 @@ class ExecutionService:
                 result = await self._run_agent(agent, input_text, parameters or {}, session_id)
 
                 # Update execution record
-                execution.output = result
-                execution.status = ExecutionStatus.COMPLETED
-                now_utc = datetime.now(timezone.utc)
-                execution.duration_ms = int((now_utc - execution.created_at).total_seconds() * 1000)
+                # Update execution record (Offload DB)
+                def _update_success():
+                    execution.output = result
+                    execution.status = ExecutionStatus.COMPLETED
+                    now_utc = datetime.now(timezone.utc)
+                    execution.duration_ms = int((now_utc - execution.created_at).total_seconds() * 1000)
+                    self.db.commit()
+                    self.db.refresh(execution)
 
-                self.db.commit()
-                self.db.refresh(execution)
+                await loop.run_in_executor(None, _update_success)
 
                 logger.info("Agent execution completed", execution_id=str(execution.id))
 
@@ -132,14 +144,17 @@ class ExecutionService:
 
             except Exception as e:
                 # Update execution with error
-                execution.output = {"error": str(e)}
-                execution.status = ExecutionStatus.FAILED
-                execution.error_message = str(e)
-                now_utc = datetime.now(timezone.utc)
-                execution.duration_ms = int((now_utc - execution.created_at).total_seconds() * 1000)
+                # Update execution with error (Offload DB)
+                def _update_error():
+                    execution.output = {"error": str(e)}
+                    execution.status = ExecutionStatus.FAILED
+                    execution.error_message = str(e)
+                    now_utc = datetime.now(timezone.utc)
+                    execution.duration_ms = int((now_utc - execution.created_at).total_seconds() * 1000)
+                    self.db.commit()
+                    self.db.refresh(execution)
 
-                self.db.commit()
-                self.db.refresh(execution)
+                await loop.run_in_executor(None, _update_error)
 
                 logger.error("Agent execution failed", error=str(e), execution_id=str(execution.id))
                 if isinstance(e, HTTPException):
@@ -206,16 +221,24 @@ class ExecutionService:
         )
 
         # Get agent tools
-        agent_tools = (
-            self.db.query(AgentTool).filter(AgentTool.agent_id == agent.id).all()
-        )
-        tool_records: List[Tool] = []
-        for agent_tool in agent_tools:
-            tool_record = (
-                self.db.query(Tool).filter(Tool.id == agent_tool.tool_id).first()
+        # Get agent tools (Offload DB query)
+        import asyncio
+        loop = asyncio.get_running_loop()
+
+        def _fetch_tools():
+            agent_tools = (
+                self.db.query(AgentTool).filter(AgentTool.agent_id == agent.id).all()
             )
-            if tool_record:
-                tool_records.append(tool_record)
+            records: List[Tool] = []
+            for agent_tool in agent_tools:
+                tool_record = (
+                    self.db.query(Tool).filter(Tool.id == agent_tool.tool_id).first()
+                )
+                if tool_record:
+                    records.append(tool_record)
+            return records
+
+        tool_records = await loop.run_in_executor(None, _fetch_tools)
 
         builtin_tool_names = [tool.name for tool in tool_records if tool.name]
 
@@ -227,7 +250,7 @@ class ExecutionService:
         )
 
         # Build conversation history context
-        conversation_history = self._build_conversation_history(agent.id, session_id)
+        conversation_history = await self._build_conversation_history(agent.id, session_id)
         logger.debug(
             "Loaded conversation history",
             agent_id=str(agent.id),
@@ -436,7 +459,7 @@ class ExecutionService:
             ],
         }
 
-    def _build_rag_context(
+    async def _build_rag_context(
         self,
         agent_id: UUID,
         user_query: str,
@@ -450,7 +473,7 @@ class ExecutionService:
                 query_preview=user_query[:200],
                 top_k=top_k,
             )
-            chunks = self.embedding_service.get_relevant_chunks(agent_id, user_query, top_k)
+            chunks = await self.embedding_service.get_relevant_chunks(agent_id, user_query, top_k)
         except Exception as exc:  # noqa: BLE001
             logger.warning("RAG retrieval failed", agent_id=str(agent_id), error=str(exc))
             return ""
@@ -986,25 +1009,31 @@ class ExecutionService:
 
         return None
 
-    def _build_conversation_history(self, agent_id: UUID, session_id: Optional[str]) -> List[BaseMessage]:
-        query = (
-            self.db.query(Execution)
-            .filter(
-                Execution.agent_id == agent_id,
-                Execution.status == ExecutionStatus.COMPLETED,
-                Execution.output.isnot(None),
+    async def _build_conversation_history(self, agent_id: UUID, session_id: Optional[str]) -> List[BaseMessage]:
+        import asyncio
+        loop = asyncio.get_running_loop()
+
+        def _query_history():
+            query = (
+                self.db.query(Execution)
+                .filter(
+                    Execution.agent_id == agent_id,
+                    Execution.status == ExecutionStatus.COMPLETED,
+                    Execution.output.isnot(None),
+                )
             )
-        )
 
-        if session_id:
-            query = query.filter(Execution.session_id == session_id)
+            if session_id:
+                query = query.filter(Execution.session_id == session_id)
 
-        executions = (
-            query
-            .order_by(Execution.created_at.asc())
-            .limit(20)
-            .all()
-        )
+            return (
+                query
+                .order_by(Execution.created_at.asc())
+                .limit(20)
+                .all()
+            )
+
+        executions = await loop.run_in_executor(None, _query_history)
 
         history_messages: List[BaseMessage] = []
         for exec_record in executions:

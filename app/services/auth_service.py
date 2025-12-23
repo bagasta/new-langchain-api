@@ -120,17 +120,24 @@ class AuthService:
             return None
         return self._get_user_by_normalized_identifier(normalized)
 
-    def authenticate_user(self, identifier: str, password: str) -> Optional[User]:
+    async def authenticate_user(self, identifier: str, password: str) -> Optional[User]:
         user = self._get_user_by_identifier(identifier)
         if not user:
             return None
+        
+        # Fast path: check if password hash matches exactly (unlikely for bcrypt but good for plain text if any)
         if password == user.password_hash:
             return user
-        if verify_password(password, user.password_hash):
+            
+        import asyncio
+        loop = asyncio.get_running_loop()
+        is_valid = await loop.run_in_executor(None, verify_password, password, user.password_hash)
+        
+        if is_valid:
             return user
         return None
 
-    def create_user(self, identifier: str, password: str) -> User:
+    async def create_user(self, identifier: str, password: str) -> User:
         normalized = self._normalize_identifier(identifier)
         if not normalized:
             raise HTTPException(
@@ -145,16 +152,19 @@ class AuthService:
                 detail="Account already exists for this email address or phone number.",
             )
 
-        hashed_password = get_password_hash(password)
+        import asyncio
+        loop = asyncio.get_running_loop()
+        hashed_password = await loop.run_in_executor(None, get_password_hash, password)
+        
         db_user = User(email=normalized, password_hash=hashed_password, created_at=datetime.utcnow())
         self.db.add(db_user)
         self.db.commit()
         self.db.refresh(db_user)
         return db_user
 
-    def generate_api_key(self, identifier: str, password: str, plan_code: PlanCode) -> Dict[str, Any]:
+    async def generate_api_key(self, identifier: str, password: str, plan_code: PlanCode) -> Dict[str, Any]:
         """Generate API key with plan-based expiration"""
-        user = self.authenticate_user(identifier, password)
+        user = await self.authenticate_user(identifier, password)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -329,7 +339,7 @@ class AuthService:
         logger.info("User password updated successfully", user_id=str(user.id))
         return True
 
-    def update_api_key(
+    async def update_api_key(
         self,
         identifier: str,
         password: str,
@@ -337,7 +347,7 @@ class AuthService:
         plan_code: PlanCode
     ) -> bool:
         """Update an existing API key's plan and expiration"""
-        user = self.authenticate_user(identifier, password)
+        user = await self.authenticate_user(identifier, password)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

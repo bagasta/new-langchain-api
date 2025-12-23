@@ -215,7 +215,7 @@ class EmbeddingService:
             start += len(batch)
         return vectors
 
-    def get_relevant_chunks(
+    async def get_relevant_chunks(
         self,
         agent_id: UUID,
         query: str,
@@ -224,21 +224,29 @@ class EmbeddingService:
         if not query.strip():
             return []
 
-        query_vector = self.embedding_client.embed_query(query)
+        import asyncio
+        loop = asyncio.get_running_loop()
+
+        # Offload embedding generation (network/CPU bound)
+        query_vector = await loop.run_in_executor(None, self.embedding_client.embed_query, query)
 
         distance = Embedding.embedding.cosine_distance(query_vector)
 
-        rows = (
-            self.db.query(
-                Embedding.content,
-                Embedding.metadata_json,
-                distance.label("distance"),
+        # Offload DB query (I/O bound)
+        def _query_db():
+            return (
+                self.db.query(
+                    Embedding.content,
+                    Embedding.metadata_json,
+                    distance.label("distance"),
+                )
+                .filter(Embedding.agent_id == agent_id)
+                .order_by(distance)
+                .limit(top_k)
+                .all()
             )
-            .filter(Embedding.agent_id == agent_id)
-            .order_by(distance)
-            .limit(top_k)
-            .all()
-        )
+
+        rows = await loop.run_in_executor(None, _query_db)
 
         return [
             {
