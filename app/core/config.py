@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_AGENTS: int = 10000
     AGENT_EXECUTION_TIMEOUT: int = 300  # 5 minutes
 
+    # Thread Pool for blocking operations (bcrypt, DB, etc.)
+    THREAD_POOL_SIZE: int = 100  # Large pool for high-concurrency load tests
+
     MCP_SSE_URL: Optional[str] = Field(default=None, env="MCP_SSE_URL")
     MCP_SSE_TOKEN: Optional[str] = Field(default=None, env="MCP_SSE_TOKEN")
     MCP_SSE_ALLOWED_TOOLS: List[str] = Field(default_factory=list, env="MCP_SSE_ALLOWED_TOOLS")
@@ -87,3 +90,7 @@ class Settings(BaseSettings):
         return value
 
 settings = Settings()
+
+# Shared ThreadPoolExecutor for blocking operations
+from concurrent.futures import ThreadPoolExecutor
+executor = ThreadPoolExecutor(max_workers=settings.THREAD_POOL_SIZE)

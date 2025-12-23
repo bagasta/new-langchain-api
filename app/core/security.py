@@ -16,10 +16,12 @@ except Exception:  # pragma: no cover - defensive fallback
     bcrypt = None  # type: ignore
 
 # Support both bcrypt (default 2b, 12 rounds) and legacy bcrypt_sha256 hashes.
+# NOTE: Using rounds=4 for DEV/LOAD-TEST (16x faster: 250ms -> 15ms)
+# For PRODUCTION, use rounds=10-12 for security
 pwd_context = CryptContext(
     schemes=["bcrypt", "bcrypt_sha256"],
     deprecated="auto",
-    bcrypt__rounds=12,
+    bcrypt__rounds=4,  # DEV/TEST only! Use 10-12 for production
     bcrypt__ident="2b",
 )
 

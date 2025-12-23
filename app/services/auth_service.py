@@ -18,7 +18,7 @@ from googleapiclient.discovery import build
 from app.models import User, AuthToken, ApiKey
 from app.schemas.auth import TokenData, AuthTokenCreate, PlanCode
 from app.core.security import create_access_token, verify_password, get_password_hash
-from app.core.config import settings
+from app.core.config import settings, executor
 from app.core.logging import logger
 
 
@@ -131,7 +131,7 @@ class AuthService:
             
         import asyncio
         loop = asyncio.get_running_loop()
-        is_valid = await loop.run_in_executor(None, verify_password, password, user.password_hash)
+        is_valid = await loop.run_in_executor(executor, verify_password, password, user.password_hash)
         
         if is_valid:
             return user
@@ -154,7 +154,7 @@ class AuthService:
 
         import asyncio
         loop = asyncio.get_running_loop()
-        hashed_password = await loop.run_in_executor(None, get_password_hash, password)
+        hashed_password = await loop.run_in_executor(executor, get_password_hash, password)
         
         db_user = User(email=normalized, password_hash=hashed_password, created_at=datetime.utcnow())
         self.db.add(db_user)
