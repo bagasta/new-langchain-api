@@ -28,9 +28,11 @@ class GoogleAuthRequest(BaseModel):
 
 
 class GoogleAuthResponse(BaseModel):
-    auth_url: str
-    state: str
+    auth_required: bool
+    auth_url: Optional[str] = None
+    auth_state: Optional[str] = None
     required_scopes: Optional[List[str]] = None
+    tokens: Optional[List[dict]] = None
 
 
 class GoogleStatusRequest(BaseModel):

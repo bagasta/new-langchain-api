@@ -359,13 +359,26 @@ async def execute_agent(
             response_text = execution.output.get("output")
         elif isinstance(execution.output, str):
             response_text = execution.output
+        
+        # Get agent for token limit info
+        from app.services.agent_service import AgentService
+        from app.core.deps import get_db
+        agent_service = AgentService(next(get_db()))
+        agent = agent_service.get_agent(agent_id, current_user.id)
+        
+        # Calculate tokens remaining
+        tokens_remaining = None
+        if agent.token_limit is not None:
+            tokens_remaining = max(0, agent.token_limit - (agent.tokens_used or 0))
 
         return AgentExecuteResponse(
             execution_id=str(execution.id),
             status=execution.status.value,
             message="Agent execution started",
             response=response_text,
-            session_id=execution.session_id
+            session_id=execution.session_id,
+            tokens_used=execution.total_tokens,
+            tokens_remaining=tokens_remaining
         )
     except HTTPException:
         raise

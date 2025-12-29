@@ -25,6 +25,11 @@ class Execution(Base):
     status = Column(Enum(ExecutionStatus), default=ExecutionStatus.PENDING)
     duration_ms = Column(Integer)
     error_message = Column(String)
+    
+    # Token tracking fields
+    input_tokens = Column(Integer, nullable=True, comment="Tokens used in input")
+    output_tokens = Column(Integer, nullable=True, comment="Tokens used in output")
+    total_tokens = Column(Integer, nullable=True, comment="Total tokens for this execution")
 
     # Relationships
     agent = relationship("Agent", back_populates="executions", passive_deletes=True)

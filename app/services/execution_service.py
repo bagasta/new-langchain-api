@@ -24,6 +24,12 @@ from app.services.auth_service import AuthService
 from app.services.embedding_service import EmbeddingService
 from app.core.logging import logger
 from app.core.config import settings
+from app.utils.token_utils import (
+    estimate_tokens,
+    estimate_tokens_from_messages,
+    has_tokens_available,
+    calculate_remaining_tokens,
+)
 from app.core.mcp_config import (
     MCPConnectionSettings,
     MCPToolFilter,
@@ -104,6 +110,31 @@ class ExecutionService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Agent not found"
                 )
+            
+            # Check token limit before execution
+            if agent.token_limit is not None:
+                tokens_remaining = calculate_remaining_tokens(agent.token_limit, agent.tokens_used or 0)
+                
+                if tokens_remaining is not None and tokens_remaining <= 0:
+                    logger.warning(
+                        "Agent token limit exceeded",
+                        agent_id=str(agent_id),
+                        token_limit=agent.token_limit,
+                        tokens_used=agent.tokens_used,
+                        tokens_remaining=tokens_remaining
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail=f"Agent token limit exceeded. Used: {agent.tokens_used}/{agent.token_limit} tokens. Please increase the token limit or reset the agent."
+                    )
+                
+                logger.info(
+                    "Token usage check passed",
+                    agent_id=str(agent_id),
+                    tokens_remaining=tokens_remaining,
+                    tokens_used=agent.tokens_used,
+                    token_limit=agent.token_limit
+                )
 
             # Create execution record (Offload DB)
             def _create_execution():
@@ -126,15 +157,48 @@ class ExecutionService:
                 # Execute the agent
                 result = await self._run_agent(agent, input_text, parameters or {}, session_id)
 
-                # Update execution record
                 # Update execution record (Offload DB)
                 def _update_success():
+                    # Calculate token usage
+                    model = agent.config.get('llm_model') or agent.config.get('model') or 'gpt-3.5-turbo'
+                    
+                    # Estimate input tokens
+                    input_tokens = estimate_tokens(input_text, model)
+                    
+                    # Estimate output tokens
+                    output_text = result.get('output', '')
+                    if isinstance(output_text, dict):
+                        output_text = str(output_text)
+                    output_tokens = estimate_tokens(str(output_text), model)
+                    
+                    total_tokens = input_tokens + output_tokens
+                    
+                    # Update execution record with token usage
                     execution.output = result
                     execution.status = ExecutionStatus.COMPLETED
+                    execution.input_tokens = input_tokens
+                    execution.output_tokens = output_tokens
+                    execution.total_tokens = total_tokens
                     now_utc = datetime.now(timezone.utc)
                     execution.duration_ms = int((now_utc - execution.created_at).total_seconds() * 1000)
+                    
+                    # Update agent's total token usage
+                    agent.tokens_used = (agent.tokens_used or 0) + total_tokens
+                    
                     self.db.commit()
                     self.db.refresh(execution)
+                    self.db.refresh(agent)
+                    
+                    logger.info(
+                        "Token usage tracked",
+                        execution_id=str(execution.id),
+                        agent_id=str(agent_id),
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        total_tokens=total_tokens,
+                        agent_tokens_used=agent.tokens_used,
+                        agent_token_limit=agent.token_limit
+                    )
 
                 await loop.run_in_executor(None, _update_success)
 

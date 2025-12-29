@@ -434,7 +434,7 @@ class AuthService:
 
     def create_google_auth_url(
         self,
-        user_id: str,
+        user_id: Optional[str] = None,
         scopes: Optional[Sequence[str]] = None,
         include_granted_scopes: bool = False,
         agent_id: Optional[str] = None,
@@ -442,10 +442,11 @@ class AuthService:
         requested_scopes = normalize_scopes(scopes or DEFAULT_GOOGLE_SCOPES)
         scopes = normalize_scopes(list(requested_scopes) + GOOGLE_IDENTITY_SCOPES)
         state_payload = {
-            "u": user_id,
             "n": str(uuid4()),
             "s": scopes,
         }
+        if user_id:
+            state_payload["u"] = user_id
         if agent_id:
             state_payload["a"] = agent_id
         state_bytes = json.dumps(state_payload).encode("utf-8")

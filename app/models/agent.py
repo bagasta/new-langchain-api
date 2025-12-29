@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Enum, ForeignKey, text
+from sqlalchemy import Column, String, Enum, ForeignKey, BigInteger, DateTime, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.orm import relationship
 import uuid
@@ -32,6 +32,11 @@ class Agent(Base):
         server_default=text("'{}'::text[]"),
         default=list,
     )
+    
+    # Token limiting fields
+    token_limit = Column(BigInteger, nullable=True, comment="Maximum tokens allowed for this agent")
+    tokens_used = Column(BigInteger, nullable=False, server_default=text("0"), default=0, comment="Total tokens used by this agent")
+    token_reset_date = Column(DateTime(timezone=True), nullable=True, comment="Optional date for periodic token reset")
 
     # Relationships
     user = relationship("User", back_populates="agents")

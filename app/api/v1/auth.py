@@ -220,9 +220,45 @@ async def google_auth_post(
         agent_id or (str(request.agent_id) if request and request.agent_id else None),
         request,
     )
+    return await _init_google_auth(
+        current_user,
+        auth_service,
+        tool_service,
+        tools,
+        scopes,
+        agent_id or (str(request.agent_id) if request and request.agent_id else None),
+        request,
+    )
 
 
-@router.get("/google/auth", response_model=GoogleAuthResponse)
+@router.get("/google/login", response_model=GoogleAuthResponse)
+async def google_login(
+    tools: Optional[str] = Query(
+        None,
+        description="Comma-separated tool names to derive required Google scopes.",
+    ),
+    scopes: Optional[str] = Query(
+        None,
+        description="Space- or comma-separated scopes to request explicitly.",
+    ),
+    auth_service: AuthService = Depends(get_auth_service),
+    tool_service: ToolService = Depends(get_tool_service),
+):
+    """Initiate Google OAuth login (public endpoint)."""
+    required_scopes = _resolve_required_scopes(tools, scopes, None, tool_service)
+    
+    auth_data = auth_service.create_google_auth_url(
+        user_id=None,
+        scopes=required_scopes,
+    )
+
+    return {
+        "auth_required": True,
+        "auth_url": auth_data.get("auth_url"),
+        "auth_state": auth_data.get("state"),
+        "required_scopes": required_scopes,
+        "tokens": [],
+    }
 async def google_auth_get(
     tools: Optional[str] = Query(
         None,

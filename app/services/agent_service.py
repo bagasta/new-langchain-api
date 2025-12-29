@@ -53,6 +53,8 @@ class AgentService:
                 config=config_dict,
                 mcp_servers=mcp_servers,
                 allowed_tools=list(agent_data.allowed_tools or []),
+                token_limit=agent_data.token_limit,
+                tokens_used=0,
             )
 
             self.db.add(agent)
@@ -118,6 +120,9 @@ class AgentService:
 
             if agent_data.allowed_tools is not None:
                 agent.allowed_tools = list(agent_data.allowed_tools or [])
+
+            if agent_data.token_limit is not None:
+                agent.token_limit = agent_data.token_limit
 
             if agent_data.tools is not None:
                 # Remove existing tools

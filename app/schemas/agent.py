@@ -67,6 +67,11 @@ class AgentCreate(BaseModel):
         default_factory=list,
         validation_alias=AliasChoices("allowed_tools", "mcp_tools"),
     )
+    token_limit: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="Maximum tokens allowed for this agent. Set to None for unlimited."
+    )
 
     @field_validator("tools", mode="before")
     @classmethod
@@ -116,6 +121,11 @@ class AgentUpdate(BaseModel):
     allowed_tools: Optional[List[str]] = Field(
         default=None,
         validation_alias=AliasChoices("allowed_tools", "mcp_tools"),
+    )
+    token_limit: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="Maximum tokens allowed for this agent. Set to None for unlimited."
     )
 
     @field_validator("tools", mode="before")
@@ -176,6 +186,11 @@ class AgentResponse(BaseModel):
         validation_alias=AliasChoices("mcp_tools", "allowed_tools"),
     )
     google_tools: List[str] = Field(default_factory=list)
+    
+    # Token limit fields
+    token_limit: Optional[int] = None
+    tokens_used: int = 0
+    token_reset_date: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -198,6 +213,10 @@ class AgentExecuteResponse(BaseModel):
     message: str
     response: Optional[str] = None
     session_id: Optional[str] = None
+    
+    # Token usage tracking
+    tokens_used: Optional[int] = None
+    tokens_remaining: Optional[int] = None
 
 
 class AgentCreateResponse(AgentResponse):
