@@ -358,13 +358,12 @@ async def process_google_callback(
 
         logger.info("Google OAuth callback processed", user_id=str(user.id))
 
-        return {
-            "jwt_token": api_key.access_token,
-            "token_type": "bearer",
-            "user_id": str(user.id),
-            "email": user.email,
-            "plan_code": api_key.plan_code
-        }
+        # Redirect to frontend with token
+        # Use FRONTEND_URL from env or default to localhost
+        import os
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        redirect_url = f"{frontend_url}/auth/callback?token={api_key.access_token}"
+        return RedirectResponse(url=redirect_url)
 
     except HTTPException as exc:
         logger.warning("Google OAuth callback failed", error=str(exc.detail))
