@@ -94,11 +94,15 @@ async function initiateGoogleLogin() {
 **Response:**
 ```json
 {
-  "message": "Google authentication successful"
+  "jwt_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "email": "user@gmail.com",
+  "plan_code": "TRIAL"
 }
 ```
 
-**Note:** Callback ini dipanggil oleh Google, bukan frontend. Setelah sukses, Anda perlu mechanism untuk pass JWT token ke frontend (lihat section Implementation Strategies).
+**Note:** Callback ini dipanggil oleh Google, dan response ini akan diterima oleh browser/frontend yang melakukan request. Frontend harus menyimpan `jwt_token` ini.
 
 ---
 

@@ -41,7 +41,17 @@ Backend will:
 - ✅ Verify the code
 - ✅ Get user info from Google
 - ✅ Create user if doesn't exist
-- ✅ Return success message
+- ✅ **Return JWT Token** (Save this!)
+
+**Response from Callback:**
+```json
+{
+  "jwt_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "user_id": "...",
+  "plan_code": "TRIAL"
+}
+```
 
 ---
 

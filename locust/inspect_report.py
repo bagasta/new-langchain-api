@@ -1,6 +1,7 @@
 import re
+import os
 
-file_path = "locust/report/load-testing(100 Users 30s).html"
+file_path = os.path.join(os.path.dirname(__file__), "report", "load-testing(100 Users 30s).html")
 with open(file_path, "r", encoding="utf-8") as f:
     content = f.read()
 

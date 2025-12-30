@@ -202,6 +202,42 @@ class AuthService:
             "plan_code": plan_code.value
         }
 
+    def ensure_api_key_for_user(self, user_id: UUID) -> ApiKey:
+        """Ensure user has a valid API key, creating a TRIAL one if needed."""
+        # Check for existing active key
+        existing_key = (
+            self.db.query(ApiKey)
+            .filter(
+                ApiKey.user_id == user_id,
+                ApiKey.is_active == True,
+                ApiKey.expires_at > datetime.utcnow()
+            )
+            .order_by(ApiKey.created_at.desc())
+            .first()
+        )
+        
+        if existing_key:
+            return existing_key
+
+        # Create new TRIAL key
+        expires_at = self._calculate_plan_expiration(PlanCode.TRIAL)
+        access_token = self.create_access_token(str(user_id))
+        
+        api_key = ApiKey(
+            user_id=user_id,
+            access_token=access_token,
+            plan_code=PlanCode.TRIAL.value,
+            expires_at=expires_at,
+            created_at=datetime.utcnow(),
+            is_active=True
+        )
+        
+        self.db.add(api_key)
+        self.db.commit()
+        self.db.refresh(api_key)
+        
+        return api_key
+
     def _purge_expired_trial_api_keys(self, reference_time: Optional[datetime] = None) -> None:
         """Remove expired trial API keys."""
         if reference_time is None:

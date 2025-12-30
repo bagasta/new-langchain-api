@@ -43,15 +43,7 @@ from app.core.logging import logger
 router = APIRouter()
 
 
-@router.options("/{path:path}", include_in_schema=False)
-async def auth_preflight(path: str) -> Response:
-    """Handle CORS preflight requests for auth endpoints."""
-    return Response(status_code=204)
 
-
-@router.options("/", include_in_schema=False)
-async def auth_preflight_root() -> Response:
-    return Response(status_code=204)
 
 
 @router.post("/login", response_model=Token)
@@ -315,6 +307,7 @@ async def process_google_callback(
 
         # Exchange code for tokens
         token_data = auth_service.exchange_google_code(code, state, scopes)
+        print(f"DEBUG: Token data received. Email: {token_data.get('email')}")
 
         user = None
         user_id_from_state = None
@@ -328,20 +321,37 @@ async def process_google_callback(
                 logger.warning("Invalid user id in Google OAuth state", state=state)
 
         # Get or create user
+        # Get or create user
         if not user:
+            print(f"DEBUG: Searching user by email: {token_data['email']}")
             user = db.query(User).filter(User.email == token_data["email"]).first()
+        
         if not user:
+            print(f"DEBUG: User not found, creating new user for {token_data['email']}")
             # Create user with random password (they'll use Google OAuth)
             import secrets
             temp_password = secrets.token_urlsafe(32)
             user = await auth_service.create_user(token_data["email"], temp_password)
+            print(f"DEBUG: User created with ID: {user.id}")
+        else:
+            print(f"DEBUG: User found with ID: {user.id}")
 
+        # Save auth token
         # Save auth token
         auth_service.save_auth_token(str(user.id), token_data, state_agent)
 
+        # Ensure user has an API key (Plan) and get the access token
+        api_key = auth_service.ensure_api_key_for_user(user.id)
+
         logger.info("Google OAuth callback processed", user_id=str(user.id))
 
-        return {"message": "Google authentication successful"}
+        return {
+            "jwt_token": api_key.access_token,
+            "token_type": "bearer",
+            "user_id": str(user.id),
+            "email": user.email,
+            "plan_code": api_key.plan_code
+        }
 
     except HTTPException as exc:
         logger.warning("Google OAuth callback failed", error=str(exc.detail))
