@@ -332,9 +332,22 @@ async def process_google_callback(
             import secrets
             temp_password = secrets.token_urlsafe(32)
             user = await auth_service.create_user(token_data["email"], temp_password)
-            print(f"DEBUG: User created with ID: {user.id}")
+            
+            # Auto-activate user since Google verified the email
+            user.is_active = True
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            print(f"DEBUG: User created and activated with ID: {user.id}")
         else:
             print(f"DEBUG: User found with ID: {user.id}")
+            # Auto-activate existing user if they login via Google (verifies email)
+            if not user.is_active:
+                user.is_active = True
+                db.add(user)
+                db.commit()
+                db.refresh(user)
+                print(f"DEBUG: User activated via Google login")
 
         # Save auth token
         # Save auth token

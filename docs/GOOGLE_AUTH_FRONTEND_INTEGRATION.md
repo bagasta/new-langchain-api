@@ -79,10 +79,13 @@ async function initiateGoogleLogin() {
 ---
 
 ### 2. Google OAuth Callback
-
 **Endpoint:** `GET /api/v1/auth/google/callback`
 
-**Description:** Endpoint yang dipanggil Google setelah user authorize. Backend akan process dan return JWT token.
+**Description:** Endpoint yang dipanggil Google setelah user authorize. Backend akan:
+1.  Membuat user baru (jika belum ada) atau login user lama.
+2.  **Otomatis mengaktifkan user** (Auto-Activate).
+3.  **Otomatis membuat API Key** (jika belum ada).
+4.  Mengembalikan Access Token (API Key) yang siap pakai.
 
 **Authentication:** None (Called by Google)
 
@@ -102,7 +105,9 @@ async function initiateGoogleLogin() {
 }
 ```
 
-**Note:** Callback ini dipanggil oleh Google, dan response ini akan diterima oleh browser/frontend yang melakukan request. Frontend harus menyimpan `jwt_token` ini.
+**Note:**
+- **Seamless Flow:** User tidak perlu melakukan aktivasi manual atau generate API key terpisah. Token yang dikembalikan di `jwt_token` adalah **API Key (Access Token)** yang bisa langsung digunakan untuk request ke endpoint lain (misal: Create Agent).
+- Callback ini dipanggil oleh Google, dan response ini akan diterima oleh browser/frontend yang melakukan request. Frontend harus menyimpan `jwt_token` ini.
 
 ---
 
