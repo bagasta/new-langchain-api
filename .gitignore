@@ -59,9 +59,9 @@ dmypy.json
 *.so
 
 # Environment variables
-.env
+
 .env.*
-*.env
+
 
 # Editors / IDEs
 .vscode/
