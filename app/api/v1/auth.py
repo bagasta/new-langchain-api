@@ -6,6 +6,8 @@ from typing import Dict, Any, Optional, List, Union
 from uuid import UUID
 import base64
 import json
+from pydantic import BaseModel
+from datetime import datetime
 
 from app.core.database import get_db
 from app.core.deps import (
@@ -35,6 +37,7 @@ from app.schemas.auth import (
     ApiKeyUpdateRequest,
     UserPasswordUpdateRequest,
     RefreshStatusGoogleRequest,
+    PlanCode,
 )
 from app.services.tool_service import ToolService
 from app.services.agent_service import AgentService
@@ -323,46 +326,39 @@ async def process_google_callback(
         # Get or create user
         # Get or create user
         if not user:
-            print(f"DEBUG: Searching user by email: {token_data['email']}")
-            user = db.query(User).filter(User.email == token_data["email"]).first()
-        
-        if not user:
             print(f"DEBUG: User not found, creating new user for {token_data['email']}")
             # Create user with random password (they'll use Google OAuth)
             import secrets
             temp_password = secrets.token_urlsafe(32)
             user = await auth_service.create_user(token_data["email"], temp_password)
             
-            # Auto-activate user since Google verified the email
-            user.is_active = True
+            # New users are inactive until they select a plan
+            user.is_active = False
             db.add(user)
             db.commit()
             db.refresh(user)
-            print(f"DEBUG: User created and activated with ID: {user.id}")
+            print(f"DEBUG: User created (inactive) with ID: {user.id}")
         else:
             print(f"DEBUG: User found with ID: {user.id}")
-            # Auto-activate existing user if they login via Google (verifies email)
-            if not user.is_active:
-                user.is_active = True
-                db.add(user)
-                db.commit()
-                db.refresh(user)
-                print(f"DEBUG: User activated via Google login")
+            # Do NOT auto-activate existing inactive users here; they must go through payment/activation flow
+            pass
 
-        # Save auth token
         # Save auth token
         auth_service.save_auth_token(str(user.id), token_data, state_agent)
 
-        # Ensure user has an API key (Plan) and get the access token
-        api_key = auth_service.ensure_api_key_for_user(user.id)
-
+        # Do NOT create API key yet. User needs to select a plan.
+        
         logger.info("Google OAuth callback processed", user_id=str(user.id))
 
-        # Redirect to frontend with token
-        # Use FRONTEND_URL from env or default to localhost
+        # Redirect to frontend payment/onboarding page
         import os
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
-        redirect_url = f"{frontend_url}/auth/callback?token={api_key.access_token}"
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        
+        # Generate a temporary short-lived token for the frontend to identify the user
+        # This is NOT the API key, but a session token for the onboarding flow
+        temp_token = auth_service.create_access_token(str(user.id))
+        
+        redirect_url = f"{frontend_url}/payment?token={temp_token}&email={user.email}&user_id={user.id}"
         return RedirectResponse(url=redirect_url)
 
     except HTTPException as exc:
@@ -788,6 +784,60 @@ async def get_google_tokens_post(
     return _build_google_tokens_response(
         required_scopes, current_user, auth_service, resolved_agent_id
     )
+
+
+class GooglePlanActivationRequest(BaseModel):
+    plan_code: PlanCode
+
+
+@router.post("/google/activate-plan", response_model=ApiKeyResponse)
+async def activate_google_user_plan(
+    request: GooglePlanActivationRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """
+    Activate a Google-authenticated user and assign a plan.
+    This is called after the user selects a plan on the frontend.
+    """
+    if current_user.is_active:
+        # If already active, just ensure they have a key for this plan or upgrade/downgrade
+        # For simplicity, we'll just generate a new key/plan if they want to switch
+        pass
+
+    # Activate user
+    current_user.is_active = True
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+
+    # Generate API Key for the plan
+    expires_at = auth_service._calculate_plan_expiration(request.plan_code)
+    access_token = auth_service.create_access_token(str(current_user.id))
+
+    api_key = ApiKey(
+        user_id=current_user.id,
+        access_token=access_token,
+        plan_code=request.plan_code.value,
+        expires_at=expires_at,
+        created_at=datetime.utcnow(),
+        is_active=True
+    )
+
+    db.add(api_key)
+    db.commit()
+    db.refresh(api_key)
+
+    logger.info("Google user activated and plan assigned", user_id=str(current_user.id), plan_code=request.plan_code)
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "expires_at": expires_at,
+        "plan_code": request.plan_code.value,
+        "user_id": current_user.id
+    }
 
 
 @router.post("/refresh-status-google")

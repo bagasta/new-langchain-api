@@ -32,6 +32,7 @@ from app.schemas.agent import (
     AgentUploadRecord,
     AgentUploadListResponse,
 )
+from app.schemas.auth import ApiKeyResponse
 from app.core.logging import logger
 
 router = APIRouter()
@@ -90,12 +91,32 @@ async def create_agent(
         )
 
         return agent_response
+
     except Exception as e:
         logger.error("Failed to create agent", error=str(e), user_id=str(current_user.id))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create agent: {str(e)}"
         )
+
+
+@router.post("/{agent_id}/publish", response_model=ApiKeyResponse)
+async def publish_agent(
+    agent_id: UUID,
+    current_user: User = Depends(get_api_key_user),
+    agent_service: AgentService = Depends(get_agent_service),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Publish an agent and generate a unique API key for it."""
+    # Verify ownership
+    agent = agent_service.get_agent(agent_id, current_user.id)
+    
+    # Generate API key
+    api_key_data = auth_service.create_agent_api_key(current_user.id, agent_id)
+    
+    logger.info("Agent published and API key generated", agent_id=str(agent_id), user_id=str(current_user.id))
+    
+    return ApiKeyResponse(**api_key_data)
 
 
 @router.get("/", response_model=List[AgentResponse])

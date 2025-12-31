@@ -45,3 +45,4 @@ class Agent(Base):
     embeddings = relationship("Embedding", back_populates="agent", passive_deletes=True)
     uploads = relationship("AgentUpload", back_populates="agent", passive_deletes=True)
     auth_tokens = relationship("AuthToken", back_populates="agent", passive_deletes=True)
+    api_keys = relationship("ApiKey", back_populates="agent", passive_deletes=True)

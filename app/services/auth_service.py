@@ -37,23 +37,8 @@ def normalize_scopes(scopes: Sequence[str]) -> List[str]:
 
 DEFAULT_GOOGLE_SCOPES: List[str] = normalize_scopes(
     [
-        "https://www.googleapis.com/auth/gmail.readonly",
-        "https://www.googleapis.com/auth/gmail.compose",
-        "https://www.googleapis.com/auth/gmail.send",
-        "https://www.googleapis.com/auth/gmail.modify",
-        "https://www.googleapis.com/auth/gmail.labels",
-        "https://mail.google.com/",
-        "https://www.googleapis.com/auth/spreadsheets.readonly",
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive.file",
-        "https://www.googleapis.com/auth/drive.metadata.readonly",
-        "https://www.googleapis.com/auth/calendar",
-        "https://www.googleapis.com/auth/documents",
-        "https://www.googleapis.com/auth/documents.readonly",
         "https://www.googleapis.com/auth/userinfo.email",
         "https://www.googleapis.com/auth/userinfo.profile",
-        "https://www.googleapis.com/auth/gmail.addons.current.action.compose",
-        "https://www.googleapis.com/auth/gmail.addons.current.message.action",
         "openid",
     ]
 )
@@ -447,11 +432,60 @@ class AuthService:
             )
         return datetime.utcnow() + timedelta(days=days)
 
-    def create_access_token(self, user_id: str) -> str:
+    def create_access_token(self, user_id: str, sub_type: str = "user", agent_id: Optional[str] = None) -> str:
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        extra_claims = {"type": sub_type}
+        if agent_id:
+            extra_claims["agent_id"] = agent_id
+            
         return create_access_token(
-            subject=user_id, expires_delta=access_token_expires
+            subject=user_id, 
+            expires_delta=access_token_expires,
+            extra_claims=extra_claims
         )
+
+    def create_agent_api_key(self, user_id: UUID, agent_id: UUID) -> Dict[str, Any]:
+        """Generate a unique API key for a specific agent."""
+        # Get user's current active plan
+        user_key = (
+            self.db.query(ApiKey)
+            .filter(
+                ApiKey.user_id == user_id,
+                ApiKey.is_active == True,
+                ApiKey.agent_id.is_(None)  # Main user key
+            )
+            .order_by(ApiKey.created_at.desc())
+            .first()
+        )
+        
+        plan_code = user_key.plan_code if user_key else PlanCode.TRIAL.value
+        
+        # Calculate expiration
+        expires_at = self._calculate_plan_expiration(PlanCode(plan_code))
+        
+        access_token = self.create_access_token(str(user_id), sub_type="agent", agent_id=str(agent_id))
+        
+        api_key = ApiKey(
+            user_id=user_id,
+            agent_id=agent_id,
+            access_token=access_token,
+            plan_code=plan_code,
+            expires_at=expires_at,
+            created_at=datetime.utcnow(),
+            is_active=True
+        )
+        
+        self.db.add(api_key)
+        self.db.commit()
+        self.db.refresh(api_key)
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "expires_at": expires_at,
+            "plan_code": plan_code,
+            "agent_id": str(agent_id)
+        }
 
     def get_current_user(self, token: str) -> Optional[User]:
         token_data = self.verify_token(token)

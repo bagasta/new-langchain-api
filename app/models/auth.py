@@ -33,6 +33,8 @@ class ApiKey(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
     trial_ip = Column(String(45), nullable=True, index=True)
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Relationships
     user = relationship("User", back_populates="api_keys")
+    agent = relationship("Agent", back_populates="api_keys")

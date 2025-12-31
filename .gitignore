@@ -90,3 +90,6 @@ init.sql
 # Temporary files
 *.tmp
 *.temp
+
+
+frontend

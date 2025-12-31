@@ -83,9 +83,8 @@ async function initiateGoogleLogin() {
 
 **Description:** Endpoint yang dipanggil Google setelah user authorize. Backend akan:
 1.  Membuat user baru (jika belum ada) atau login user lama.
-2.  **Otomatis mengaktifkan user** (Auto-Activate).
-3.  **Otomatis membuat API Key** (jika belum ada).
-4.  Mengembalikan Access Token (API Key) yang siap pakai.
+2.  **Set User Inactive** (jika user baru).
+3.  **Redirect ke Frontend Payment Page** dengan temporary token.
 
 **Authentication:** None (Called by Google)
 
@@ -94,20 +93,37 @@ async function initiateGoogleLogin() {
 - `state` (required): State parameter untuk security
 - `scope` (optional): Granted scopes
 
-**Response:**
+**Response (Redirect):**
+Backend akan melakukan redirect ke frontend URL:
+`{FRONTEND_URL}/payment?token={temp_token}&email={user_email}&user_id={user_id}`
+
+**Flow Selanjutnya (Frontend):**
+1.  Frontend menerima redirect di halaman `/payment`.
+2.  Frontend mengambil `token` dari URL query params.
+3.  User memilih plan (e.g., TRIAL, PRO_M, PRO_Y).
+4.  Frontend memanggil endpoint aktivasi:
+
+**Endpoint:** `POST /api/v1/auth/google/activate-plan`
+
+**Request:**
 ```json
 {
-  "jwt_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer",
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "email": "user@gmail.com",
   "plan_code": "TRIAL"
 }
 ```
+**Header:** `Authorization: Bearer {temp_token}`
 
-**Note:**
-- **Seamless Flow:** User tidak perlu melakukan aktivasi manual atau generate API key terpisah. Token yang dikembalikan di `jwt_token` adalah **API Key (Access Token)** yang bisa langsung digunakan untuk request ke endpoint lain (misal: Create Agent).
-- Callback ini dipanggil oleh Google, dan response ini akan diterima oleh browser/frontend yang melakukan request. Frontend harus menyimpan `jwt_token` ini.
+**Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "expires_at": "2024-02-15T10:30:00",
+  "plan_code": "TRIAL",
+  "user_id": "..."
+}
+```
+Token yang dikembalikan ini adalah **API Key** final yang bisa digunakan untuk request selanjutnya.
 
 ---
 
