@@ -323,14 +323,35 @@ async def process_google_callback(
             except ValueError:
                 logger.warning("Invalid user id in Google OAuth state", state=state)
 
-        # Get or create user
+
+        if not user:
+             # Try to find user by email from token_data
+            user_email = token_data.get("email")
+            if user_email:
+                user = db.query(User).filter(User.email == user_email).first()
+
         # Get or create user
         if not user:
             print(f"DEBUG: User not found, creating new user for {token_data['email']}")
             # Create user with random password (they'll use Google OAuth)
             import secrets
             temp_password = secrets.token_urlsafe(32)
-            user = await auth_service.create_user(token_data["email"], temp_password)
+            # Create the user directly to avoid "Account already exists" error from service
+            # since we just checked and it doesn't exist (or at least we couldn't find it)
+            # But wait, create_user in service does check.
+            # We should wrap in try/catch just in case of race condition,
+            # or use the service if our check above returned None.
+            try:
+                user = await auth_service.create_user(token_data["email"], temp_password)
+            except HTTPException as e:
+                # If create_user fails with 400, it might mean user exists (race condition?)
+                # Try to fetch again
+                if e.status_code == 400:
+                    user = db.query(User).filter(User.email == token_data["email"]).first()
+                    if not user:
+                        raise e
+                else:
+                    raise e
             
             # New users are inactive until they select a plan
             user.is_active = False
@@ -340,26 +361,45 @@ async def process_google_callback(
             print(f"DEBUG: User created (inactive) with ID: {user.id}")
         else:
             print(f"DEBUG: User found with ID: {user.id}")
-            # Do NOT auto-activate existing inactive users here; they must go through payment/activation flow
-            pass
 
         # Save auth token
         auth_service.save_auth_token(str(user.id), token_data, state_agent)
-
-        # Do NOT create API key yet. User needs to select a plan.
         
         logger.info("Google OAuth callback processed", user_id=str(user.id))
 
-        # Redirect to frontend payment/onboarding page
+        # Redirect to frontend
         import os
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
         
-        # Generate a temporary short-lived token for the frontend to identify the user
-        # This is NOT the API key, but a session token for the onboarding flow
-        temp_token = auth_service.create_access_token(str(user.id))
-        
-        redirect_url = f"{frontend_url}/payment?token={temp_token}&email={user.email}&user_id={user.id}"
-        return RedirectResponse(url=redirect_url)
+        # Check if user is active and has a valid plan
+        if user.is_active:
+             # User is already active. Redirect to dashboard/callback with access token.
+             # We need to find their active API key to return, or generate a session token.
+             # Typically we return the API Key as the "token" for the frontend.
+             
+            api_key = (
+                db.query(ApiKey)
+                .filter(
+                    ApiKey.user_id == user.id,
+                    ApiKey.is_active == True,
+                    ApiKey.agent_id.is_(None) # Main account key
+                )
+                .order_by(ApiKey.created_at.desc())
+                .first()
+            )
+            
+            access_token = api_key.access_token if api_key else auth_service.create_access_token(str(user.id))
+            
+            # Redirect to the auth callback route which will set the token and redirect to dashboard
+            redirect_url = f"{frontend_url}/auth/callback?token={access_token}&user_id={user.id}"
+            return RedirectResponse(url=redirect_url)
+
+        else:
+            # User is NOT active (new or unpaid). Redirect to payment/onboarding.
+            # Generate a temporary short-lived token for the frontend to identify the user
+            temp_token = auth_service.create_access_token(str(user.id))
+            redirect_url = f"{frontend_url}/payment?token={temp_token}&email={user.email}&user_id={user.id}"
+            return RedirectResponse(url=redirect_url)
 
     except HTTPException as exc:
         logger.warning("Google OAuth callback failed", error=str(exc.detail))
