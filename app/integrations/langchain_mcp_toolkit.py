@@ -87,12 +87,21 @@ async def mcp_toolkit_context(
         inners = list(_iter_exception_group(exc)) or [exc]
         total = len(inners)
         for idx, inner in enumerate(inners, 1):
-            logger.exception(
-                "MCP SSE inner exception %d/%d",
-                idx,
-                total,
-                exc_info=(type(inner), inner, inner.__traceback__),
-            )
+            if isinstance(inner, (httpx.ConnectError, )) or "ConnectError" in type(inner).__name__:
+                logger.warning(
+                    "MCP SSE connection failed %d/%d: %s",
+                    idx,
+                    total,
+                    str(inner),
+                    url=connection.sse_url
+                )
+            else:
+                logger.exception(
+                    "MCP SSE inner exception %d/%d",
+                    idx,
+                    total,
+                    exc_info=(type(inner), inner, inner.__traceback__),
+                )
 
         primary = inners[0]
         if isinstance(primary, MCPIntegrationError) and not isinstance(

@@ -51,42 +51,23 @@ async def create_agent(
         agent = agent_service.create_agent(current_user.id, agent_data)
         logger.info("Agent created", agent_id=str(agent.id), user_id=str(current_user.id))
 
-        selected_tools = agent_data.tools or []
-        required_scopes = tool_service.get_required_scopes(selected_tools)
-        requires_google_auth = bool(required_scopes)
-
-        auth_required = False
-        auth_url = None
-        auth_state = None
-
-        if requires_google_auth:
-            tokens = auth_service.get_user_auth_tokens(str(current_user.id), str(agent.id))
-            required_scope_set = set(required_scopes)
-            has_google = False
-            for token in tokens:
-                if token.service != "google":
-                    continue
-                token_scopes = set(token.scope or [])
-                if required_scope_set.issubset(token_scopes):
-                    has_google = True
-                    break
-
-            if not has_google:
-                auth_data = auth_service.create_google_auth_url(
-                    str(current_user.id),
-                    required_scopes or DEFAULT_GOOGLE_SCOPES,
-                    agent_id=str(agent.id),
-                )
-                auth_required = True
-                auth_url = auth_data.get("auth_url")
-                auth_state = auth_data.get("state")
+        # Validate Google Auth requirements
+        # We check all tools (local + google + mcp) for scope requirements
+        all_tools = agent.allowed_tools or []
+        required_scopes = tool_service.get_required_scopes(all_tools)
+        
+        auth_status = auth_service.check_google_auth_requirement(
+            str(current_user.id),
+            str(agent.id),
+            required_scopes
+        )
 
         agent_response = AgentCreateResponse.model_validate(agent, from_attributes=True)
         agent_response = agent_response.model_copy(
             update={
-                "auth_required": auth_required,
-                "auth_url": auth_url,
-                "auth_state": auth_state,
+                "auth_required": auth_status["auth_required"],
+                "auth_url": auth_status["auth_url"],
+                "auth_state": auth_status["auth_state"],
             }
         )
 
@@ -136,30 +117,29 @@ async def get_agent(
     current_user: User = Depends(get_api_key_user),
     agent_service: AgentService = Depends(get_agent_service),
     auth_service: AuthService = Depends(get_auth_service),
+    tool_service: ToolService = Depends(get_tool_service),
 ):
     """Get a specific agent"""
     agent = agent_service.get_agent(agent_id, current_user.id)
-    tokens = auth_service.get_user_auth_tokens(str(current_user.id), str(agent_id))
-    google_scopes: List[str] = []
-    for token in tokens:
-        if token.service != "google":
-            continue
-        google_scopes.extend(token.scope or [])
-
-    dedup_scopes = normalize_scopes(google_scopes)
-    scope_set = set(dedup_scopes)
-
-    google_tool_names: List[str] = []
-    for tool_name, required_scopes in GOOGLE_TOOL_SCOPE_MAP.items():
-        if not required_scopes:
-            continue
-        if set(required_scopes).issubset(scope_set):
-            google_tool_names.append(tool_name)
-
-    google_tool_names.sort()
+    
+    # Check Google Auth requirements based on configured tools
+    all_tools = agent.allowed_tools or []
+    required_scopes = tool_service.get_required_scopes(all_tools)
+    
+    auth_status = auth_service.check_google_auth_requirement(
+        str(current_user.id),
+        str(agent.id),
+        required_scopes
+    )
 
     scoped_agent = AgentResponse.model_validate(agent, from_attributes=True)
-    return scoped_agent.model_copy(update={"google_tools": google_tool_names})
+    return scoped_agent.model_copy(
+        update={
+            "auth_required": auth_status["auth_required"],
+            "auth_url": auth_status["auth_url"],
+            "auth_state": auth_status["auth_state"],
+        }
+    )
 
 
 @router.put("/{agent_id}", response_model=AgentResponse)
@@ -167,13 +147,32 @@ async def update_agent(
     agent_id: UUID,
     agent_data: AgentUpdate,
     current_user: User = Depends(get_api_key_user),
-    agent_service: AgentService = Depends(get_agent_service)
+    agent_service: AgentService = Depends(get_agent_service),
+    tool_service: ToolService = Depends(get_tool_service),
+    auth_service: AuthService = Depends(get_auth_service)
 ):
     """Update an agent"""
     try:
         agent = agent_service.update_agent(agent_id, current_user.id, agent_data)
-        logger.info("Agent updated", agent_id=str(agent_id), user_id=str(current_user.id))
-        return agent
+        
+        # Check Google Auth requirements after update
+        all_tools = agent.allowed_tools or []
+        required_scopes = tool_service.get_required_scopes(all_tools)
+        
+        auth_status = auth_service.check_google_auth_requirement(
+            str(current_user.id),
+            str(agent.id),
+            required_scopes
+        )
+        
+        updated_agent_response = AgentResponse.model_validate(agent, from_attributes=True)
+        return updated_agent_response.model_copy(
+            update={
+                "auth_required": auth_status["auth_required"],
+                "auth_url": auth_status["auth_url"],
+                "auth_state": auth_status["auth_state"],
+            }
+        )
     except Exception as e:
         logger.error("Failed to update agent", error=str(e), agent_id=str(agent_id))
         raise HTTPException(
@@ -443,3 +442,31 @@ async def get_execution_stats(
     """Get execution statistics"""
     stats = execution_service.get_execution_stats(current_user.id)
     return stats
+
+
+@router.get("/{agent_id}/history/system-messages")
+async def get_agent_system_message_history(
+    agent_id: UUID,
+    current_user: User = Depends(get_api_key_user),
+    agent_service: AgentService = Depends(get_agent_service)
+):
+    """Get history of system messages for an agent"""
+    # Verify access
+    agent_service.get_agent(agent_id, current_user.id)
+    
+    from app.models.agent_history import AgentSystemMessageHistory
+    
+    history = agent_service.db.query(AgentSystemMessageHistory).filter(
+        AgentSystemMessageHistory.agent_id == agent_id
+    ).order_by(AgentSystemMessageHistory.created_at.desc()).all()
+    
+    return {
+        "history": [
+            {
+                "id": str(entry.id),
+                "system_message": entry.system_message,
+                "created_at": entry.created_at
+            }
+            for entry in history
+        ]
+    }

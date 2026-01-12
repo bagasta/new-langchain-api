@@ -6,6 +6,7 @@ from .auth import AuthToken, ApiKey
 from .execution import Execution, ExecutionStatus
 from .embedding import Embedding
 from .agent_upload import AgentUpload
+from .agent_history import AgentSystemMessageHistory
 
 __all__ = [
     "Base",
@@ -21,4 +22,5 @@ __all__ = [
     "ExecutionStatus",
     "Embedding",
     "AgentUpload",
+    "AgentSystemMessageHistory",
 ]

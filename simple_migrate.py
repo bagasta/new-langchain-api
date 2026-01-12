@@ -5,12 +5,13 @@ def migrate():
     print(f"Connecting to database...")
     # Use default settings.DATABASE_URL (psycopg2)
     engine = create_engine(settings.DATABASE_URL)
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         try:
             print("Executing migration...")
-            conn.execute(text("ALTER TABLE api_keys ADD COLUMN agent_id UUID REFERENCES agents(id) ON DELETE CASCADE;"))
-            conn.commit()
-            print("Migration successful: Added agent_id to api_keys table.")
+            # Fix missing updated_at column in agent_system_message_history
+            conn.execute(text("ALTER TABLE agent_system_message_history ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE;"))
+            # conn.commit() is automatic with engine.begin()
+            print("Migration successful: Added updated_at to agent_system_message_history table.")
         except Exception as e:
             print(f"Migration failed (might already exist): {e}")
 

@@ -23,6 +23,9 @@ async def lifespan(app: FastAPI):
     # Startup
     setup_logging()
     logger.info("Starting up LangChain Agent API")
+    
+    # Log CORS Info
+    logger.info("CORS Settings", frontend_url=settings.FRONTEND_URL, allowed_origins=origins)
 
     # Create database tables
     init_db()
@@ -42,9 +45,28 @@ app = FastAPI(
 )
 
 # Add CORS middleware
+origins = [
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://localhost:5173",
+]
+
+# Add configured FRONTEND_URL to allowed origins
+if settings.FRONTEND_URL:
+    # Remove trailing slash
+    frontend_url = settings.FRONTEND_URL.rstrip("/")
+    if frontend_url not in origins:
+        origins.append(frontend_url)
+
+# Add other configured origins
+for origin in settings.BACKEND_CORS_ORIGINS:
+    origin_stripped = origin.rstrip("/")
+    if origin_stripped not in origins:
+        origins.append(origin_stripped)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -91,6 +113,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Include API routes
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# COMPATIBILITY FIX: Expose Auth routes at /auth (without /api/v1 prefix)
+# This fixes the 404 error when frontend calls /auth/google/login directly
+from app.api.v1 import auth
+app.include_router(auth.router, prefix="/auth", tags=["Auth (Compatibility)"])
 
 
 redirect_path = urlparse(settings.GOOGLE_REDIRECT_URI).path or ""
@@ -145,12 +172,6 @@ async def root():
         "docs": "/docs",
         "health": "/health"
     }
-
-
-@app.options("/{path:path}")
-async def preflight_handler(path: str) -> Response:
-    """Handle CORS preflight requests with an empty 204 response."""
-    return Response(status_code=204)
 
 
 @app.get("/favicon.ico", include_in_schema=False)

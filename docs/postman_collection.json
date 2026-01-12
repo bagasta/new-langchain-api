@@ -1,0 +1,760 @@
+{
+	"info": {
+		"_postman_id": "580ceb9c-6180-4b41-96f4-826d741990f9",
+		"name": "LangChain Agent API",
+		"description": "Collection for interacting with the LangChain Agent API",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "40764944"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Register",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/auth/register?email={{email}}&password={{password}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"register"
+							],
+							"query": [
+								{
+									"key": "email",
+									"value": "{{email}}"
+								},
+								{
+									"key": "password",
+									"value": "{{password}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"pm.collectionVariables.set(\"jwt_token\", jsonData.jwt_token);"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/auth/login?email={{email}}&password={{password}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"login"
+							],
+							"query": [
+								{
+									"key": "email",
+									"value": "{{email}}"
+								},
+								{
+									"key": "password",
+									"value": "{{password}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Me",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/auth/me",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"me"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Generate User API Key",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"plan_code\": \"PRO_M\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/api-key",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"api-key"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Google Login Init",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/auth/google/login?tools=gmail",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"google",
+								"login"
+							],
+							"query": [
+								{
+									"key": "tools",
+									"value": "gmail"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Agents",
+			"item": [
+				{
+					"name": "Create Agent",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if(jsonData.id) {",
+									"    pm.collectionVariables.set(\"agent_id\", jsonData.id);",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Agent Google 7 with token\",\n    \"google_tools\": [\n        \"gmail_get_message\", \n        \"gmail_read_messages\", \n        \"gmail_list_messages\", \n        \"gmail_send_message\", \n        \"gmail_create_draft\", \n        \"google_calendar_list_events\", \n        \"google_calendar_create_event\", \n        \"google_calendar_get_event\", \n        \"google_sheets_create_spreadsheet\", \n        \"google_sheets_update_values\", \n        \"google_sheets_get_values\", \n        \"google_docs_list_documents\", \n        \"google_docs_get_document\", \n        \"google_docs_create_document\", \n        \"google_docs_append_text\", \n        \"google_docs\", \n        \"google_sheets_list_spreadsheets\"\n    ],\n    \"config\": {\n      \"llm_model\": \"gpt-4o-mini\",\n      \"temperature\": 0.5,\n      \"system_prompt\": \"Kamu adalah assistant pribadi saya yang dapat menggunakan semua tools ini...\"\n    },\n    \"mcp_servers\": {\n      \"calculator_sse\": {\n        \"transport\": \"sse\",\n        \"url\": \"http://0.0.0.0:8190/sse\"\n      }\n    },\n    \"mcp_tools\": [\"web_search\"],\n    \"token_limit\": 5000\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/agents/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Agents",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/agents/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Specific Agent",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/agents/{{agent_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								"{{agent_id}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Agent",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Agent Name\",\n  \"config\": {\n    \"system_prompt\": \"You are a now a pirate.\",\n    \"temperature\": 0.9\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/agents/{{agent_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								"{{agent_id}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Publish Agent",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/agents/{{agent_id}}/publish",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								"{{agent_id}}",
+								"publish"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get System Message History",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/agents/{{agent_id}}/history/system-messages",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								"{{agent_id}}",
+								"history",
+								"system-messages"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Agent",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/agents/{{agent_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								"{{agent_id}}"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Documents",
+			"item": [
+				{
+					"name": "Upload Document",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if(jsonData.upload_id) {",
+									"    pm.collectionVariables.set(\"upload_id\", jsonData.upload_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": []
+								},
+								{
+									"key": "chunk_size",
+									"value": "1000",
+									"type": "text"
+								},
+								{
+									"key": "chunk_overlap",
+									"value": "200",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/agents/{{agent_id}}/documents",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								"{{agent_id}}",
+								"documents"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Documents",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/agents/{{agent_id}}/documents",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								"{{agent_id}}",
+								"documents"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Document",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/agents/{{agent_id}}/documents/{{upload_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								"{{agent_id}}",
+								"documents",
+								"{{upload_id}}"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Execution",
+			"item": [
+				{
+					"name": "Execute Agent",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"input\": \"Baca email terbaru saya\",\n  \"session_id\": \"test-session-1\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/agents/{{agent_id}}/execute",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								"{{agent_id}}",
+								"execute"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Execution History",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/agents/{{agent_id}}/executions",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								"{{agent_id}}",
+								"executions"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Execution Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/agents/executions/stats",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"agents",
+								"executions",
+								"stats"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Tools",
+			"item": [
+				{
+					"name": "List Tools",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/tools/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"tools",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Tool Schema",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/tools/schemas/gmail_send_message",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"tools",
+								"schemas",
+								"gmail_send_message"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Execute Tool",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"tool_id\": \"{{tool_id}}\",\n  \"parameters\": {\n    \"param1\": \"value1\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/tools/execute",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"tools",
+								"execute"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000/api/v1",
+			"type": "string"
+		},
+		{
+			"key": "email",
+			"value": "user@example.com",
+			"type": "string"
+		},
+		{
+			"key": "password",
+			"value": "password123",
+			"type": "string"
+		},
+		{
+			"key": "jwt_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "agent_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "upload_id",
+			"value": "",
+			"type": "string"
+		}
+	]
+}

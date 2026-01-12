@@ -13,6 +13,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False)
+    api_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     agents = relationship("Agent", back_populates="user")

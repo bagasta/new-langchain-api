@@ -105,6 +105,23 @@ class AgentService:
 
             if agent_data.config is not None:
                 existing_config = dict(agent.config or {})
+                
+                # Check for system prompt change
+                new_system_prompt = agent_data.config.system_prompt
+                old_system_prompt = existing_config.get("system_prompt")
+                
+                if new_system_prompt is not None and new_system_prompt != old_system_prompt:
+                    from app.models.agent_history import AgentSystemMessageHistory
+                    # Save the new version or old version? 
+                    # If we save the OLD one, we build a history of past states.
+                    # If we don't save anything on creation, the first "history" is empty.
+                    # Let's save the OLD one.
+                    history_entry = AgentSystemMessageHistory(
+                        agent_id=agent_id,
+                        system_message=old_system_prompt
+                    )
+                    self.db.add(history_entry)
+
                 updates = agent_data.config.model_dump(exclude_unset=True, exclude_none=True)
                 existing_config.update(updates)
                 agent.config = existing_config

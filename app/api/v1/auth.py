@@ -8,6 +8,7 @@ import base64
 import json
 from pydantic import BaseModel
 from datetime import datetime
+from app.core.config import settings
 
 from app.core.database import get_db
 from app.core.deps import (
@@ -246,6 +247,8 @@ async def google_login(
         user_id=None,
         scopes=required_scopes,
     )
+    
+    logger.info("Generated Google Auth URL", url=auth_data.get("auth_url"))
 
     return {
         "auth_required": True,
@@ -368,8 +371,7 @@ async def process_google_callback(
         logger.info("Google OAuth callback processed", user_id=str(user.id))
 
         # Redirect to frontend
-        import os
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        frontend_url = settings.FRONTEND_URL
         
         # Check if user is active and has a valid plan
         if user.is_active:
@@ -466,6 +468,7 @@ async def get_current_user_info(
         "email": current_user.email,
         "is_active": current_user.is_active,
         "created_at": current_user.created_at,
+        "api_expires_at": current_user.api_expires_at or (api_key.expires_at if api_key else None),
         "access_token": display_token,
         "plan_code": plan_code,
     }

@@ -177,6 +177,10 @@ class AuthService:
         )
 
         self.db.add(api_key)
+        
+        # Update user expiration to match the Plan
+        user.api_expires_at = expires_at
+        
         self.db.commit()
         self.db.refresh(api_key)
 
@@ -397,6 +401,9 @@ class AuthService:
         api_key.plan_code = plan_code.value
         api_key.expires_at = expires_at
         api_key.is_active = True
+        
+        # Update user expiration
+        user.api_expires_at = expires_at
 
         self.db.commit()
 
@@ -791,14 +798,15 @@ class AuthService:
             if "scope" in token_data:
                 new_scopes = normalize_scopes(token_data["scope"].split())
                 current_scopes = auth_token.scope or []
-
-                # Merge scopes - keep all current scopes and add new ones
-                merged_scopes = normalize_scopes(list(set(current_scopes + new_scopes)))
-                auth_token.scope = merged_scopes
+                # Merge scopes
+                auth_token.scope = normalize_scopes(list(set(current_scopes + new_scopes)))
 
             self.db.commit()
-            self.db.refresh(auth_token)
             return auth_token
+            
+        except requests.RequestException:
+            # Token might be revoked or invalid
+            return None
 
         except Exception as e:
             # Handle scope change errors gracefully
@@ -812,3 +820,43 @@ class AuthService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Failed to refresh token: {str(e)}"
             )
+
+    def check_google_auth_requirement(
+        self,
+        user_id: str,
+        agent_id: str,
+        required_scopes: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Check if the user has valid Google tokens satisfying the required scopes.
+        Returns a dict with `auth_required`, `auth_url`, and `auth_state`.
+        """
+        if not required_scopes:
+            return {"auth_required": False, "auth_url": None, "auth_state": None}
+
+        tokens = self.get_user_auth_tokens(user_id, agent_id)
+        required_scope_set = set(required_scopes)
+        has_google = False
+        
+        for token in tokens:
+            if token.service != "google":
+                continue
+            token_scopes = set(token.scope or [])
+            if required_scope_set.issubset(token_scopes):
+                has_google = True
+                break
+        
+        if has_google:
+            return {"auth_required": False, "auth_url": None, "auth_state": None}
+            
+        # Generate Auth URL
+        auth_data = self.create_google_auth_url(
+            user_id,
+            required_scopes,
+            agent_id=agent_id,
+        )
+        return {
+            "auth_required": True,
+            "auth_url": auth_data.get("auth_url"),
+            "auth_state": auth_data.get("state")
+        }

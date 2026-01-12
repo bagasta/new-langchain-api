@@ -60,7 +60,10 @@ class Settings(BaseSettings):
     AGENT_EXECUTION_TIMEOUT: int = 300  # 5 minutes
 
     # Thread Pool for blocking operations (bcrypt, DB, etc.)
+    # Thread Pool for blocking operations (bcrypt, DB, etc.)
     THREAD_POOL_SIZE: int = 100  # Large pool for high-concurrency load tests
+    
+    FRONTEND_URL: str = Field(default="http://localhost:3000", env="FRONTEND_URL")
 
     MCP_SSE_URL: Optional[str] = Field(default=None, env="MCP_SSE_URL")
     MCP_SSE_TOKEN: Optional[str] = Field(default=None, env="MCP_SSE_TOKEN")

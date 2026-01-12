@@ -60,8 +60,8 @@ dmypy.json
 
 # Environment variables
 
-.env.*
-
+.env
+.env
 
 # Editors / IDEs
 .vscode/
@@ -93,3 +93,7 @@ init.sql
 
 
 frontend
+.env
+.env
+.env
+.env

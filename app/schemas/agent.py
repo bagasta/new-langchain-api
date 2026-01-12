@@ -57,10 +57,8 @@ class MCPServerConfig(BaseModel):
 
 class AgentCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    tools: List[str] = Field(
-        default_factory=list,
-        validation_alias=AliasChoices("tools", "google_tools"),
-    )
+    tools: List[str] = Field(default_factory=list)
+    google_tools: List[str] = Field(default_factory=list)
     config: Optional[AgentConfig] = None
     mcp_servers: Dict[str, MCPServerConfig] = Field(default_factory=dict)
     allowed_tools: List[str] = Field(
@@ -73,7 +71,32 @@ class AgentCreate(BaseModel):
         description="Maximum tokens allowed for this agent. Set to None for unlimited."
     )
 
-    @field_validator("tools", mode="before")
+    @model_validator(mode="before")
+    @classmethod
+    def _merge_tool_inputs(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            tools = data.get("tools", []) or []
+            google_tools = data.get("google_tools", []) or []
+            
+            if not isinstance(tools, list):
+                tools = []
+            if not isinstance(google_tools, list):
+                google_tools = []
+                
+            # Define mcp_tools
+            mcp_tools = data.get("mcp_tools") or data.get("allowed_tools") or []
+            if not isinstance(mcp_tools, list): mcp_tools = []
+            
+            # Merge DB tools (Local + Google)
+            db_tools = list(set(tools + google_tools))
+            data["tools"] = db_tools
+            
+            # Merge into allowed_tools (Local + Google + MCP)
+            all_tools = list(set(db_tools + mcp_tools))
+            data["allowed_tools"] = all_tools
+        return data
+
+    @field_validator("tools", mode="after")
     @classmethod
     def _dedupe_tools(cls, value):
         if not value:
@@ -111,10 +134,8 @@ class AgentCreate(BaseModel):
 
 class AgentUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
-    tools: Optional[List[str]] = Field(
-        default=None,
-        validation_alias=AliasChoices("tools", "google_tools"),
-    )
+    tools: Optional[List[str]] = Field(default=None)
+    google_tools: Optional[List[str]] = Field(default=None)
     config: Optional[AgentConfigUpdate] = None
     status: Optional[AgentStatus] = None
     mcp_servers: Optional[Dict[str, MCPServerConfig]] = None
@@ -128,7 +149,32 @@ class AgentUpdate(BaseModel):
         description="Maximum tokens allowed for this agent. Set to None for unlimited."
     )
 
-    @field_validator("tools", mode="before")
+    @model_validator(mode="before")
+    @classmethod
+    def _merge_tool_update_inputs(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Only merge if either is present
+            if "tools" in data or "google_tools" in data:
+                tools = data.get("tools") or []
+                google_tools = data.get("google_tools") or []
+                
+                if not isinstance(tools, list): tools = []
+                if not isinstance(google_tools, list): google_tools = []
+                
+                # Check for mcp_tools/allowed_tools in update data
+                mcp_tools = data.get("mcp_tools") or data.get("allowed_tools") or []
+                if not isinstance(mcp_tools, list): mcp_tools = []
+                
+                # Merge DB tools (Local + Google)
+                db_tools = list(set(tools + google_tools))
+                data["tools"] = db_tools
+                
+                # Merge into allowed_tools (Local + Google + MCP)
+                all_tools = list(set(db_tools + mcp_tools))
+                data["allowed_tools"] = all_tools
+        return data
+
+    @field_validator("tools", mode="after")
     @classmethod
     def _validate_tools(cls, value):
         if value is None:
@@ -190,14 +236,51 @@ class AgentResponse(BaseModel):
     # Token limit fields
     token_limit: Optional[int] = None
     tokens_used: int = 0
+    tokens_remaining: Optional[int] = None
     token_reset_date: Optional[datetime] = None
+    
+    # Auth Status
+    auth_required: bool = False
+    auth_url: Optional[str] = None
+    auth_state: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
     @model_validator(mode="after")
-    def _populate_mcp_tools(self) -> "AgentResponse":
-        if not self.mcp_tools and self.allowed_tools:
-            self.mcp_tools = list(self.allowed_tools)
+    def _populate_mcp_tools_and_tokens(self) -> "AgentResponse":
+        # Split allowed_tools into mcp_tools and google_tools
+        self.mcp_tools = []
+        self.google_tools = []
+        
+        if self.allowed_tools:
+            # We define google tools pattern. 
+            # Ideally this should come from a central registry, but for schema display purposes:
+            google_prefixes = (
+                "gmail_", 
+                "google_calendar_", 
+                "google_sheets_", 
+                "google_docs_", 
+                "google_drive_", 
+                "google_search"
+            )
+            # Some tools might be just "gmail" or "google_docs"
+            google_exact = {"gmail", "google_docs", "google_sheets", "google_calendar"}
+            
+            for tool in self.allowed_tools:
+                is_google = (
+                    tool.startswith(google_prefixes) 
+                    or tool in google_exact
+                )
+                
+                if is_google:
+                    self.google_tools.append(tool)
+                else:
+                    self.mcp_tools.append(tool)
+        
+        # Calculate tokens remaining
+        if self.token_limit is not None:
+            self.tokens_remaining = max(0, self.token_limit - (self.tokens_used or 0))
+            
         return self
 
 

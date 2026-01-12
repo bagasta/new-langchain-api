@@ -160,18 +160,26 @@ class ExecutionService:
                 # Update execution record (Offload DB)
                 def _update_success():
                     # Calculate token usage
-                    model = agent.config.get('llm_model') or agent.config.get('model') or 'gpt-3.5-turbo'
+                    token_usage = result.get("token_usage", {})
                     
-                    # Estimate input tokens
-                    input_tokens = estimate_tokens(input_text, model)
-                    
-                    # Estimate output tokens
-                    output_text = result.get('output', '')
-                    if isinstance(output_text, dict):
-                        output_text = str(output_text)
-                    output_tokens = estimate_tokens(str(output_text), model)
-                    
-                    total_tokens = input_tokens + output_tokens
+                    if token_usage:
+                        input_tokens = token_usage.get("input_tokens", 0)
+                        output_tokens = token_usage.get("output_tokens", 0)
+                        total_tokens = token_usage.get("total_tokens", 0)
+                    else:
+                        # Fallback to simple estimation
+                        model = agent.config.get('llm_model') or agent.config.get('model') or 'gpt-3.5-turbo'
+                        
+                        # Estimate input tokens
+                        input_tokens = estimate_tokens(input_text, model)
+                        
+                        # Estimate output tokens
+                        output_text = result.get('output', '')
+                        if isinstance(output_text, dict):
+                            output_text = str(output_text)
+                        output_tokens = estimate_tokens(str(output_text), model)
+                        
+                        total_tokens = input_tokens + output_tokens
                     
                     # Update execution record with token usage
                     execution.output = result
@@ -336,7 +344,7 @@ class ExecutionService:
             or f"You are a helpful AI assistant named {agent.name}."
         )
 
-        rag_context = self._build_rag_context(agent.id, input_text, parameters)
+        rag_context = await self._build_rag_context(agent.id, input_text, parameters)
 
         mcp_connection = self._resolve_mcp_connection_settings(agent, parameters)
         tool_filter = self._resolve_mcp_tool_filter(agent, parameters)
@@ -509,6 +517,62 @@ class ExecutionService:
         output_text = _stringify(result_payload.get("output") if result_payload else "")
 
         result_messages.append(AIMessage(content=output_text))
+        
+        # Calculate accurate token usage
+        # 1. System Prompt
+        model_name = (
+            llm_config.get("model") 
+            or llm_config.get("llm_model") 
+            or config.get("llm_model") 
+            or "gpt-3.5-turbo"
+        )
+        
+        final_tool_names = self._gather_tool_names(combined_tools)
+        system_prompt_text = self._compose_system_prompt(
+            base_prompt=base_system_prompt,
+            tool_names=final_tool_names,
+            has_tools=bool(combined_tools),
+            rag_context=rag_context,
+        )
+        system_tokens = estimate_tokens(system_prompt_text, model_name)
+        
+        # 2. History
+        history_msgs = []
+        for msg in (conversation_history or []):
+             role = "user" if msg.type == "human" else "assistant"
+             if msg.type == "system": role = "system"
+             history_msgs.append({
+                 "role": role, 
+                 "content": msg.content, 
+                 "name": getattr(msg, "name", None)
+             })
+        history_tokens = estimate_tokens_from_messages(history_msgs, model_name)
+        
+        # 3. Input
+        input_tokens_count = estimate_tokens(input_text, model_name)
+        
+        # 4. Tools definitions (Approximate)
+        tool_tokens = 0
+        for tool in combined_tools:
+            try:
+                # Estimate based on what LLM sees: name, description, args schema
+                schema = tool.args
+                if hasattr(tool, "args_schema") and tool.args_schema:
+                     schema = tool.args_schema.schema()
+                tool_def = {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": schema
+                }
+                tool_tokens += estimate_tokens(json.dumps(tool_def), model_name)
+            except Exception:
+                # Fallback if schema generation fails
+                tool_tokens += estimate_tokens(str(tool.name) + str(tool.description), model_name)
+
+        total_input_tokens = system_tokens + history_tokens + input_tokens_count + tool_tokens
+        
+        # Output tokens
+        output_tokens_count = estimate_tokens(output_text, model_name)
 
         return {
             "output": output_text,
@@ -521,6 +585,17 @@ class ExecutionService:
                 else _stringify(getattr(message, "content", ""))
                 for message in result_messages
             ],
+            "token_usage": {
+                "input_tokens": total_input_tokens,
+                "output_tokens": output_tokens_count,
+                "total_tokens": total_input_tokens + output_tokens_count,
+                "breakdown": {
+                    "system": system_tokens,
+                    "history": history_tokens,
+                    "input": input_tokens_count,
+                    "tools": tool_tokens
+                }
+            }
         }
 
     async def _build_rag_context(
@@ -577,6 +652,12 @@ class ExecutionService:
         agent: Agent,
         parameters: Mapping[str, Any],
     ) -> Optional[MCPConnectionSettings]:
+        # Optimization: Skip MCP connection if only Google tools are allowed
+        if agent.allowed_tools:
+            non_google_tools = self._filter_google_workspace_tools(agent.allowed_tools)
+            if not non_google_tools:
+                return None
+
         override_url = self._extract_non_empty_str(parameters.get("mcp_sse_url"))
         override_token = self._extract_non_empty_str(parameters.get("mcp_sse_token"))
         request_timeout = self._coerce_float(parameters.get("mcp_request_timeout"), 30.0)
