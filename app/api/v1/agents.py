@@ -396,8 +396,18 @@ async def execute_agent(
         
         # Calculate tokens remaining
         tokens_remaining = None
+        messages_remaining = None
+        messages_limit = None
+        messages_used = None
+        TOKENS_PER_MESSAGE_ESTIMATE = 2000
+
         if agent.token_limit is not None:
             tokens_remaining = max(0, agent.token_limit - (agent.tokens_used or 0))
+            
+            # Message stats calculation
+            messages_limit = agent.token_limit // TOKENS_PER_MESSAGE_ESTIMATE
+            messages_used = (agent.tokens_used or 0) // TOKENS_PER_MESSAGE_ESTIMATE
+            messages_remaining = tokens_remaining // TOKENS_PER_MESSAGE_ESTIMATE
 
         return AgentExecuteResponse(
             execution_id=str(execution.id),
@@ -406,7 +416,10 @@ async def execute_agent(
             response=response_text,
             session_id=execution.session_id,
             tokens_used=execution.total_tokens,
-            tokens_remaining=tokens_remaining
+            tokens_remaining=tokens_remaining,
+            messages_remaining=messages_remaining,
+            messages_limit=messages_limit,
+            messages_used=messages_used
         )
     except HTTPException:
         raise

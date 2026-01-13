@@ -313,6 +313,11 @@ class AgentExecuteResponse(BaseModel):
     # Token usage tracking
     tokens_used: Optional[int] = None
     tokens_remaining: Optional[int] = None
+    
+    # Message usage tracking (estimated)
+    messages_remaining: Optional[int] = None
+    messages_limit: Optional[int] = None
+    messages_used: Optional[int] = None
 
 
 class AgentCreateResponse(AgentResponse):
