@@ -179,7 +179,7 @@ class ExecutionService:
                             output_text = str(output_text)
                         output_tokens = estimate_tokens(str(output_text), model)
                         
-                        total_tokens = input_tokens + output_tokens
+                    total_tokens = input_tokens + output_tokens
                     
                     # Update execution record with token usage
                     execution.output = result
@@ -190,12 +190,18 @@ class ExecutionService:
                     now_utc = datetime.now(timezone.utc)
                     execution.duration_ms = int((now_utc - execution.created_at).total_seconds() * 1000)
                     
-                    # Update agent's total token usage
-                    agent.tokens_used = (agent.tokens_used or 0) + total_tokens
+                    # Re-fetch agent with lock to ensure atomic update and attachment
+                    # This fixes issue where tokens_used might not be persisted due to session/thread/stale object issues
+                    current_agent = self.db.query(Agent).filter(Agent.id == agent_id).with_for_update().first()
+                    if current_agent:
+                        current_agent.tokens_used = (current_agent.tokens_used or 0) + total_tokens
+                        # Update the local 'agent' object too so logging is consistent
+                        agent.tokens_used = current_agent.tokens_used
                     
                     self.db.commit()
                     self.db.refresh(execution)
-                    self.db.refresh(agent)
+                    if current_agent:
+                        self.db.refresh(current_agent)
                     
                     logger.info(
                         "Token usage tracked",

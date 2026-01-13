@@ -246,6 +246,13 @@ class AgentResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    # Message quota (Calculated from tokens)
+    messages_remaining: Optional[int] = None
+    messages_limit: Optional[int] = None
+    messages_used: Optional[int] = None
+    
+    TOKENS_PER_MESSAGE_ESTIMATE: int = 2000
+
     @model_validator(mode="after")
     def _populate_mcp_tools_and_tokens(self) -> "AgentResponse":
         # Split allowed_tools into mcp_tools and google_tools
@@ -280,6 +287,12 @@ class AgentResponse(BaseModel):
         # Calculate tokens remaining
         if self.token_limit is not None:
             self.tokens_remaining = max(0, self.token_limit - (self.tokens_used or 0))
+            
+            # Convert to User-Friendly "Messages"
+            # Asumsi: 1 pesan = 2000 token (Message + Context + Output)
+            self.messages_limit = self.token_limit // self.TOKENS_PER_MESSAGE_ESTIMATE
+            self.messages_used = (self.tokens_used or 0) // self.TOKENS_PER_MESSAGE_ESTIMATE
+            self.messages_remaining = self.tokens_remaining // self.TOKENS_PER_MESSAGE_ESTIMATE
             
         return self
 

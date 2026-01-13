@@ -153,6 +153,12 @@ async def update_agent(
 ):
     """Update an agent"""
     try:
+        logger.info(
+            "Update Agent Request",
+            agent_id=str(agent_id),
+            user_id=str(current_user.id),
+        )
+
         agent = agent_service.update_agent(agent_id, current_user.id, agent_data)
         
         # Check Google Auth requirements after update
@@ -173,6 +179,8 @@ async def update_agent(
                 "auth_state": auth_status["auth_state"],
             }
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to update agent", error=str(e), agent_id=str(agent_id))
         raise HTTPException(

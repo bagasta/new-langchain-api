@@ -47,13 +47,18 @@ class AgentService:
                 for alias, cfg in (agent_data.mcp_servers or {}).items()
             }
 
+            # Set Default Budget ($3 ~ 4,000,000 tokens) if not provided
+            # Pricing estimate: Input $0.40/1M, Output $1.60/1M. Avg ~$0.75/1M.
+            default_token_limit = 4000000 
+            limit = agent_data.token_limit if agent_data.token_limit is not None else default_token_limit
+
             agent = Agent(
                 user_id=user_id,
                 name=agent_data.name,
                 config=config_dict,
                 mcp_servers=mcp_servers,
                 allowed_tools=list(agent_data.allowed_tools or []),
-                token_limit=agent_data.token_limit,
+                token_limit=limit,
                 tokens_used=0,
             )
 
