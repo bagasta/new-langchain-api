@@ -48,6 +48,32 @@ async def create_agent(
 ):
     """Create a new agent"""
     try:
+        # Check plan-based agent limits
+        from app.models.auth import ApiKey
+        from app.schemas.auth import PlanCode
+        from app.core.database import get_db
+        
+        db = next(get_db())
+        api_key = (
+            db.query(ApiKey)
+            .filter(
+                ApiKey.user_id == current_user.id,
+                ApiKey.is_active == True,
+                ApiKey.agent_id.is_(None)  # Main account key
+            )
+            .order_by(ApiKey.created_at.desc())
+            .first()
+        )
+        
+        if api_key and api_key.plan_code == PlanCode.PRO_M.value:
+            # PRO_M users are limited to 1 agent
+            existing_agents = agent_service.get_user_agents(current_user.id)
+            if len(existing_agents) >= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="PRO_M plan users are limited to 1 agent. Please upgrade to PRO_Y for unlimited agents."
+                )
+        
         agent = agent_service.create_agent(current_user.id, agent_data)
         logger.info("Agent created", agent_id=str(agent.id), user_id=str(current_user.id))
 
