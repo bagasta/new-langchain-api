@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime
+from sqlalchemy import Column, String, Boolean, DateTime, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -14,6 +14,7 @@ class User(Base):
     is_active = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False)
     api_expires_at = Column(DateTime(timezone=True), nullable=True)
+    agent_slots = Column(Integer, nullable=True)  # NULL = unlimited, Integer = slot count
 
     # Relationships
     agents = relationship("Agent", back_populates="user")
