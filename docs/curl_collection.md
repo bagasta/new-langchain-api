@@ -207,3 +207,31 @@ curl -X POST "$API_URL/tools/" \
     }
   }'
 ```
+
+## User Management
+
+### Get My Agent Slots Info
+```bash
+curl -X GET "$API_URL/users/me/agent-slots" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "accept: application/json"
+```
+
+### Update User Agent Slots
+```bash
+# Set to specific number (e.g., 5 slots)
+curl -X PATCH "$API_URL/users/{user_id}/agent-slots" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_slots": 5
+  }'
+
+# Set to unlimited (null)
+curl -X PATCH "$API_URL/users/{user_id}/agent-slots" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_slots": null
+  }'
+```

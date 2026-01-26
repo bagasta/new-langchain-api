@@ -1,6 +1,40 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional
+from datetime import datetime
 
+
+class UserBase(BaseModel):
+    email: EmailStr
+
+
+class UserCreate(UserBase):
+    password: str
+
+
+class UserUpdate(UserBase):
+    password: Optional[str] = None
+
+
+class UserInDBBase(UserBase):
+    id: str
+    is_active: bool
+    api_key: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class User(UserInDBBase):
+    pass
+
+
+class UserInDB(UserInDBBase):
+    password_hash: str
+
+
+# Agent slots schemas
 class UserAgentSlotsResponse(BaseModel):
     """Response for getting user agent slot information"""
     total_slots: Optional[int] = Field(None, description="Total agent slots (null = unlimited)")
@@ -20,3 +54,4 @@ class UpdateAgentSlotsRequest(BaseModel):
                 "agent_slots": 5
             }
         }
+

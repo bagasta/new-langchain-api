@@ -179,6 +179,85 @@
 			]
 		},
 		{
+			"name": "Users",
+			"item": [
+				{
+					"name": "Get My Agent Slots",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/users/me/agent-slots",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"me",
+								"agent-slots"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update User Agent Slots",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if(jsonData.user_id) {",
+									"    pm.collectionVariables.set(\"user_id\", jsonData.user_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"agent_slots\": 5\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}/agent-slots",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"{{user_id}}",
+								"agent-slots"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
 			"name": "Agents",
 			"item": [
 				{
@@ -753,6 +832,11 @@
 		},
 		{
 			"key": "upload_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "user_id",
 			"value": "",
 			"type": "string"
 		}

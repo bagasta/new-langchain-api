@@ -463,6 +463,12 @@ async def get_current_user_info(
         plan_code = api_key.plan_code
         display_token = api_key.access_token
 
+    # Get agent slots information
+    from app.models.agent import Agent
+    used_slots = db.query(Agent).filter(Agent.user_id == current_user.id).count()
+    is_unlimited = current_user.agent_slots is None
+    available_slots = None if is_unlimited else max(0, current_user.agent_slots - used_slots)
+
     return {
         "id": str(current_user.id),
         "email": current_user.email,
@@ -471,6 +477,12 @@ async def get_current_user_info(
         "api_expires_at": current_user.api_expires_at or (api_key.expires_at if api_key else None),
         "access_token": display_token,
         "plan_code": plan_code,
+        "agent_slots": {
+            "total_slots": current_user.agent_slots,
+            "used_slots": used_slots,
+            "available_slots": available_slots,
+            "is_unlimited": is_unlimited
+        }
     }
 
 
