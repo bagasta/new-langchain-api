@@ -101,3 +101,7 @@ class ApiKeyUpdateRequest(BaseModel):
 class UserPasswordUpdateRequest(BaseModel):
     user_id: UUID
     new_password: str
+
+
+class MigrateTrialToGoogleRequest(BaseModel):
+    trial_user_id: UUID

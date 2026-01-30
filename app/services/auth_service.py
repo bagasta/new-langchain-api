@@ -860,3 +860,100 @@ class AuthService:
             "auth_url": auth_data.get("auth_url"),
             "auth_state": auth_data.get("state")
         }
+
+    async def migrate_trial_to_google(
+        self,
+        trial_user_id: UUID,
+        google_email: str,
+        google_token_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Migrate a trial account to a Google account.
+        Updates the email and password while preserving all agents.
+        
+        Args:
+            trial_user_id: UUID of the trial user to migrate
+            google_email: Email from Google OAuth
+            google_token_data: Token data from Google OAuth containing access_token, refresh_token, etc.
+            
+        Returns:
+            Dict containing migrated user info and new access token
+            
+        Raises:
+            HTTPException if user not found, already migrated, or Google email already exists
+        """
+        # Find the trial user
+        trial_user = self.db.query(User).filter(User.id == trial_user_id).first()
+        if not trial_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Trial user not found"
+            )
+        
+        # Check if this is actually a trial account (by email format OR plan_code)
+        is_trial_email = trial_user.email.startswith("trial_") and trial_user.email.endswith("@trial.local")
+        
+        # Check if user has TRIAL plan_code
+        trial_api_key = self.db.query(ApiKey).filter(
+            ApiKey.user_id == trial_user_id,
+            ApiKey.plan_code == PlanCode.TRIAL.value,
+            ApiKey.is_active == True
+        ).first()
+        
+        is_trial_account = is_trial_email or trial_api_key is not None
+        
+        if not is_trial_account:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This account is not a trial account (no trial email format or TRIAL plan_code found)"
+            )
+        
+        # Check if Google email already exists in another account
+        existing_google_user = self.db.query(User).filter(
+            func.lower(User.email) == google_email.lower(),
+            User.id != trial_user_id
+        ).first()
+        
+        if existing_google_user:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An account with this Google email already exists"
+            )
+        
+        # Update the trial user with Google credentials
+        # Generate a random password since they'll use Google OAuth
+        random_password = secrets.token_urlsafe(32)
+        hashed_password = get_password_hash(random_password)
+        
+        trial_user.email = google_email.lower()
+        trial_user.password_hash = hashed_password
+        trial_user.is_active = True  # Activate the account
+        
+        # Save Google OAuth tokens for the user
+        self.save_auth_token(str(trial_user.id), google_token_data, agent_id=None)
+        
+        # Commit the changes
+        self.db.commit()
+        self.db.refresh(trial_user)
+        
+        # Generate a new access token for the migrated account
+        access_token = self.create_access_token(str(trial_user.id))
+        
+        # Get or create API key for the migrated user
+        api_key = self.ensure_api_key_for_user(trial_user.id)
+        
+        logger.info(
+            "Trial account migrated to Google successfully",
+            trial_user_id=str(trial_user_id),
+            new_email=google_email
+        )
+        
+        return {
+            "user_id": str(trial_user.id),
+            "email": trial_user.email,
+            "access_token": api_key.access_token,
+            "token_type": "bearer",
+            "expires_at": api_key.expires_at,
+            "plan_code": api_key.plan_code,
+            "message": "Trial account successfully migrated to Google account. All agents have been preserved."
+        }

@@ -38,6 +38,7 @@ from app.schemas.auth import (
     ApiKeyUpdateRequest,
     UserPasswordUpdateRequest,
     RefreshStatusGoogleRequest,
+    MigrateTrialToGoogleRequest,
     PlanCode,
 )
 from app.services.tool_service import ToolService
@@ -257,6 +258,65 @@ async def google_login(
         "required_scopes": required_scopes,
         "tokens": [],
     }
+
+
+@router.post("/google/migrate-trial")
+async def migrate_trial_to_google(
+    request: MigrateTrialToGoogleRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """
+    Initiate Google OAuth for migrating a trial account.
+    This endpoint creates a Google OAuth URL with trial_user_id in the state.
+    After successful OAuth, the callback will migrate the trial account.
+    """
+    # Validate that the trial user exists
+    trial_user = auth_service.db.query(User).filter(User.id == request.trial_user_id).first()
+    if not trial_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trial user not found"
+        )
+    
+    # Check if this is actually a trial account (by email format OR plan_code)
+    is_trial_email = trial_user.email.startswith("trial_") and trial_user.email.endswith("@trial.local")
+    
+    # Check if user has TRIAL plan_code in their API keys
+    trial_api_key = auth_service.db.query(ApiKey).filter(
+        ApiKey.user_id == trial_user.id,
+        ApiKey.plan_code == "TRIAL",
+        ApiKey.is_active == True
+    ).first()
+    
+    is_trial_account = is_trial_email or trial_api_key is not None
+    
+    if not is_trial_account:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This account is not a trial account (no trial email format or TRIAL plan_code found)"
+        )
+    
+    # Create Google OAuth URL with trial_user_id in state
+    # We'll use a special marker to indicate this is a migration flow
+    auth_data = auth_service.create_google_auth_url(
+        user_id=str(request.trial_user_id),
+        scopes=DEFAULT_GOOGLE_SCOPES,
+    )
+    
+    logger.info(
+        "Generated Google Auth URL for trial migration",
+        trial_user_id=str(request.trial_user_id),
+        url=auth_data.get("auth_url")
+    )
+    
+    return {
+        "auth_url": auth_data.get("auth_url"),
+        "auth_state": auth_data.get("state"),
+        "message": "Redirect user to auth_url to complete Google sign-in for migration"
+    }
+
+
+
 async def google_auth_get(
     tools: Optional[str] = Query(
         None,
@@ -315,6 +375,7 @@ async def process_google_callback(
         token_data = auth_service.exchange_google_code(code, state, scopes)
         print(f"DEBUG: Token data received. Email: {token_data.get('email')}")
 
+
         user = None
         user_id_from_state = None
         state_user = state_data.get("u") if state_data else None
@@ -326,6 +387,47 @@ async def process_google_callback(
             except ValueError:
                 logger.warning("Invalid user id in Google OAuth state", state=state)
 
+        # Check if this is a trial account migration flow
+        is_trial_migration = False
+        if user:
+            # Check by email format
+            is_trial_email = user.email.startswith("trial_") and user.email.endswith("@trial.local")
+            
+            # Check by plan_code
+            trial_api_key = db.query(ApiKey).filter(
+                ApiKey.user_id == user.id,
+                ApiKey.plan_code == "TRIAL",
+                ApiKey.is_active == True
+            ).first()
+            
+            is_trial_account = is_trial_email or trial_api_key is not None
+            
+            if is_trial_account:
+                is_trial_migration = True
+                logger.info("Detected trial account migration", trial_user_id=str(user.id))
+            
+            # Perform the migration
+            try:
+                migration_result = await auth_service.migrate_trial_to_google(
+                    trial_user_id=user.id,
+                    google_email=token_data.get("email"),
+                    google_token_data=token_data
+                )
+                
+                # After successful migration, redirect to frontend with new token
+                frontend_url = settings.FRONTEND_URL
+                redirect_url = f"{frontend_url}/auth/callback?token={migration_result['access_token']}&user_id={migration_result['user_id']}&migrated=true"
+                
+                logger.info("Trial account migration completed", user_id=migration_result['user_id'])
+                return RedirectResponse(url=redirect_url)
+                
+            except HTTPException as e:
+                logger.error("Trial account migration failed", error=str(e.detail), trial_user_id=str(user.id))
+                # Redirect to error page
+                frontend_url = settings.FRONTEND_URL
+                error_message = str(e.detail).replace(" ", "+")
+                redirect_url = f"{frontend_url}/auth/error?message={error_message}"
+                return RedirectResponse(url=redirect_url)
 
         if not user:
              # Try to find user by email from token_data
