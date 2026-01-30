@@ -27,7 +27,7 @@ services:
   db:
     image: pgvector/pgvector:pg15
     environment:
-      POSTGRES_DB: langchain_api
+      POSTGRES_DB: dev_ai2
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-langchain}
     volumes:
