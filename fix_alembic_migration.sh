@@ -16,7 +16,7 @@ NC='\033[0m' # No Color
 
 # 1. Check git commit
 echo -e "${YELLOW}Step 1: Checking git status...${NC}"
-cd /home/bagas/Langchain-API-new
+cd "$(dirname "$0")"
 CURRENT_COMMIT=$(git log --oneline -1 | awk '{print $1}')
 echo "Current commit: $CURRENT_COMMIT"
 
