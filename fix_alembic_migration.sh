@@ -1,0 +1,133 @@
+#!/bin/bash
+# Complete Cleanup and Fix for Alembic Migration Issue
+# Run this ON THE SERVER
+
+set -e
+
+echo "🔧 Alembic Migration Fix Script"
+echo "================================"
+echo ""
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# 1. Check git commit
+echo -e "${YELLOW}Step 1: Checking git status...${NC}"
+cd ~/development/new-langchain-api
+CURRENT_COMMIT=$(git log --oneline -1 | awk '{print $1}')
+echo "Current commit: $CURRENT_COMMIT"
+
+if [ "$CURRENT_COMMIT" != "8d995bf" ]; then
+    echo -e "${RED}❌ Not on correct commit! Pulling latest...${NC}"
+    git pull origin development
+else
+    echo -e "${GREEN}✅ On correct commit${NC}"
+fi
+
+echo ""
+
+# 2. Verify file content
+echo -e "${YELLOW}Step 2: Verifying migration file...${NC}"
+REVISION=$(grep "^revision = " alembic/versions/20251223_add_updated_at_api_keys.py | cut -d'"' -f2)
+echo "Found revision: $REVISION"
+
+if [ "$REVISION" != "20251223_add_updated_at_api_keys" ]; then
+    echo -e "${RED}❌ File still has wrong revision ID!${NC}"
+    echo "Expected: 20251223_add_updated_at_api_keys"
+    echo "Got: $REVISION"
+    exit 1
+else
+    echo -e "${GREEN}✅ File has correct revision ID${NC}"
+fi
+
+echo ""
+
+# 3. Remove Python cache
+echo -e "${YELLOW}Step 3: Removing Python cache files...${NC}"
+find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+find . -type f -name "*.pyc" -delete 2>/dev/null || true
+echo -e "${GREEN}✅ Cache cleared${NC}"
+
+echo ""
+
+# 4. Stop Docker
+echo -e "${YELLOW}Step 4: Stopping Docker containers...${NC}"
+docker compose -f docker-compose.traefik.yml --env-file .env.docker down
+echo -e "${GREEN}✅ Containers stopped${NC}"
+
+echo ""
+
+# 5. Remove Docker images
+echo -e "${YELLOW}Step 5: Removing Docker images...${NC}"
+docker rmi new-langchain-api-app -f 2>/dev/null || echo "Image not found, continuing..."
+docker rmi $(docker images -f "dangling=true" -q) -f 2>/dev/null || echo "No dangling images"
+docker image prune -f
+echo -e "${GREEN}✅ Images removed${NC}"
+
+echo ""
+
+# 6. Check database migration state
+echo -e "${YELLOW}Step 6: Checking database migration state...${NC}"
+source .venv/bin/activate
+pip install psycopg2-binary -q 2>/dev/null || true
+
+# Get current migration from database
+DB_VERSION=$(python3 << 'PYTHON_SCRIPT'
+import os
+try:
+    import psycopg2
+    conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
+    cur = conn.cursor()
+    cur.execute("SELECT version_num FROM alembic_version;")
+    version = cur.fetchone()
+    if version:
+        print(version[0])
+    else:
+        print("NONE")
+    cur.close()
+    conn.close()
+except Exception as e:
+    print(f"ERROR: {e}")
+PYTHON_SCRIPT
+)
+
+echo "Database current migration: $DB_VERSION"
+
+if [ "$DB_VERSION" = "add_updated_at_api_keys" ]; then
+    echo -e "${YELLOW}⚠️  Database has OLD revision ID! Fixing...${NC}"
+    python3 << 'PYTHON_FIX'
+import os
+import psycopg2
+conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
+cur = conn.cursor()
+cur.execute("UPDATE alembic_version SET version_num = '20251223_add_updated_at_api_keys' WHERE version_num = 'add_updated_at_api_keys';")
+conn.commit()
+print("✅ Updated database migration version")
+cur.close()
+conn.close()
+PYTHON_FIX
+fi
+
+echo ""
+
+# 7. Rebuild Docker
+echo -e "${YELLOW}Step 7: Rebuilding Docker (this may take a while)...${NC}"
+docker compose -f docker-compose.traefik.yml --env-file .env.docker build --no-cache --pull
+
+echo ""
+
+# 8. Start Docker
+echo -e "${YELLOW}Step 8: Starting Docker containers...${NC}"
+docker compose -f docker-compose.traefik.yml --env-file .env.docker up -d
+
+echo ""
+echo -e "${GREEN}================================${NC}"
+echo -e "${GREEN}✨ Fix completed!${NC}"
+echo -e "${GREEN}================================${NC}"
+echo ""
+echo "Monitoring logs (Ctrl+C to exit)..."
+sleep 3
+docker logs new-langchain-api-app-1 -f
