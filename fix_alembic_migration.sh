@@ -29,6 +29,96 @@ fi
 
 echo ""
 
+# 1.5 Fix Database Connection Settings (Critical for SASL Error)
+echo -e "${YELLOW}Step 1.5: Fixing database connection settings...${NC}"
+python3 << 'PYTHON_SCRIPT'
+import os
+from urllib.parse import urlparse
+
+def update_env_file(filepath, updates):
+    if os.path.exists(filepath):
+        with open(filepath, 'r') as f:
+            lines = f.readlines()
+    else:
+        lines = []
+    
+    existing_keys = {}
+    for i, line in enumerate(lines):
+        if '=' in line and not line.strip().startswith('#'):
+            k = line.split('=')[0].strip()
+            existing_keys[k] = i
+            
+    with open(filepath, 'w') as f:
+        # Write existing lines, updating if needed
+        for i, line in enumerate(lines):
+            if '=' in line and not line.strip().startswith('#'):
+                k = line.split('=')[0].strip()
+                if k in updates:
+                    f.write(f"{k}={updates[k]}\n")
+                    del updates[k]
+                else:
+                    f.write(line)
+            else:
+                f.write(line)
+        
+        # Append new keys
+        if updates:
+            f.write("\n# Added by fix script\n")
+            for k, v in updates.items():
+                f.write(f"{k}={v}\n")
+
+# Read .env
+env_vars = {}
+if os.path.exists('.env'):
+    with open('.env', 'r') as f:
+        for line in f:
+            if '=' in line and not line.strip().startswith('#'):
+                parts = line.strip().split('=', 1)
+                env_vars[parts[0]] = parts[1]
+
+db_url = env_vars.get('DATABASE_URL')
+if db_url:
+    # Handle quotes if present
+    db_url = db_url.strip("'").strip('"')
+    
+    try:
+        # Parse connection string
+        parsed = urlparse(db_url)
+        username = parsed.username
+        password = parsed.password
+        hostname = parsed.hostname
+        port = parsed.port
+        path = parsed.path.lstrip('/')
+        
+        print(f"Detected DB settings - User: {username}, Host: {hostname}, DB: {path}")
+
+        if not password:
+            print("❌ Password not found in DATABASE_URL")
+        else:
+            # 1. Update .env with DB_* vars for PgBouncer to use backend connection
+            env_updates = {
+                'DB_HOST': hostname,
+                'DB_PORT': str(port) if port else '5432',
+                'DB_USER': username,
+                'DB_PASSWORD': password,
+                'DB_NAME': path
+            }
+            update_env_file('.env', env_updates)
+            print("✅ Updated .env with DB credentials")
+
+            # 2. Update/Create .env.docker with DATABASE_URL pointing to pgbouncer
+            # We MUST use the SAME password so PgBouncer auth matches
+            docker_db_url = f"postgresql://{username}:{password}@pgbouncer:5432/{path}"
+            
+            update_env_file('.env.docker', {'DATABASE_URL': docker_db_url})
+            print("✅ Updated .env.docker with pgbouncer connection string")
+        
+    except Exception as e:
+        print(f"❌ Error parsing DATABASE_URL: {e}")
+else:
+    print("❌ DATABASE_URL not found in .env")
+PYTHON_SCRIPT
+
 # 2. Verify file content
 echo -e "${YELLOW}Step 2: Verifying migration file...${NC}"
 REVISION=$(grep "^revision = " alembic/versions/20251223_add_updated_at_api_keys.py | cut -d'"' -f2)
