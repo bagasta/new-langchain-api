@@ -59,6 +59,7 @@ class AuthService:
         PlanCode.PRO_M: 30,
         PlanCode.PRO_Y: 365,
         PlanCode.TRIAL: 14,
+        PlanCode.GUEST: 14,  # Same as TRIAL
     }
 
     @staticmethod
@@ -893,19 +894,19 @@ class AuthService:
         # Check if this is actually a trial account (by email format OR plan_code)
         is_trial_email = trial_user.email.startswith("trial_") and trial_user.email.endswith("@trial.local")
         
-        # Check if user has TRIAL plan_code
-        trial_api_key = self.db.query(ApiKey).filter(
+        # Check if user has TRIAL or GUEST plan_code
+        trial_or_guest_api_key = self.db.query(ApiKey).filter(
             ApiKey.user_id == trial_user_id,
-            ApiKey.plan_code == PlanCode.TRIAL.value,
+            ApiKey.plan_code.in_([PlanCode.TRIAL.value, PlanCode.GUEST.value]),
             ApiKey.is_active == True
         ).first()
         
-        is_trial_account = is_trial_email or trial_api_key is not None
+        is_trial_account = is_trial_email or trial_or_guest_api_key is not None
         
         if not is_trial_account:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="This account is not a trial account (no trial email format or TRIAL plan_code found)"
+                detail="This account is not a trial/guest account (no trial email format or TRIAL/GUEST plan_code found)"
             )
         
         # Check if Google email already exists in another account
@@ -942,10 +943,24 @@ class AuthService:
         # Get or create API key for the migrated user
         api_key = self.ensure_api_key_for_user(trial_user.id)
         
+        # IMPORTANT: If user was GUEST, upgrade to TRIAL after Google login
+        if api_key.plan_code == PlanCode.GUEST.value:
+            api_key.plan_code = PlanCode.TRIAL.value
+            # Recalculate expiration for TRIAL (14 days from now)
+            api_key.expires_at = self._calculate_plan_expiration(PlanCode.TRIAL)
+            self.db.commit()
+            self.db.refresh(api_key)
+            logger.info(
+                "Upgraded GUEST to TRIAL after Google login",
+                user_id=str(trial_user_id),
+                new_plan_code="TRIAL"
+            )
+        
         logger.info(
-            "Trial account migrated to Google successfully",
+            "Trial/Guest account migrated to Google successfully",
             trial_user_id=str(trial_user_id),
-            new_email=google_email
+            new_email=google_email,
+            final_plan_code=api_key.plan_code
         )
         
         return {

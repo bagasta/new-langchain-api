@@ -9,6 +9,7 @@ class PlanCode(str, Enum):
     PRO_M = "PRO_M"
     PRO_Y = "PRO_Y"
     TRIAL = "TRIAL"
+    GUEST = "GUEST"
 
 
 class Token(BaseModel):

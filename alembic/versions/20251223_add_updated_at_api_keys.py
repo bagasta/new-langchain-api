@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "add_updated_at_api_keys"
+revision = "20251223_add_updated_at_api_keys"
 down_revision = "add_agent_id_to_auth_tokens"
 branch_labels = None
 depends_on = None

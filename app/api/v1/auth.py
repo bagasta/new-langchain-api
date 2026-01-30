@@ -281,19 +281,19 @@ async def migrate_trial_to_google(
     # Check if this is actually a trial account (by email format OR plan_code)
     is_trial_email = trial_user.email.startswith("trial_") and trial_user.email.endswith("@trial.local")
     
-    # Check if user has TRIAL plan_code in their API keys
-    trial_api_key = auth_service.db.query(ApiKey).filter(
+    # Check if user has TRIAL or GUEST plan_code in their API keys
+    trial_or_guest_api_key = auth_service.db.query(ApiKey).filter(
         ApiKey.user_id == trial_user.id,
-        ApiKey.plan_code == "TRIAL",
+        ApiKey.plan_code.in_(["TRIAL", "GUEST"]),
         ApiKey.is_active == True
     ).first()
     
-    is_trial_account = is_trial_email or trial_api_key is not None
+    is_trial_account = is_trial_email or trial_or_guest_api_key is not None
     
     if not is_trial_account:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This account is not a trial account (no trial email format or TRIAL plan_code found)"
+            detail="This account is not a trial/guest account (no trial email format or TRIAL/GUEST plan_code found)"
         )
     
     # Create Google OAuth URL with trial_user_id in state
@@ -393,18 +393,18 @@ async def process_google_callback(
             # Check by email format
             is_trial_email = user.email.startswith("trial_") and user.email.endswith("@trial.local")
             
-            # Check by plan_code
-            trial_api_key = db.query(ApiKey).filter(
+            # Check by plan_code (TRIAL or GUEST)
+            trial_or_guest_api_key = db.query(ApiKey).filter(
                 ApiKey.user_id == user.id,
-                ApiKey.plan_code == "TRIAL",
+                ApiKey.plan_code.in_(["TRIAL", "GUEST"]),
                 ApiKey.is_active == True
             ).first()
             
-            is_trial_account = is_trial_email or trial_api_key is not None
+            is_trial_account = is_trial_email or trial_or_guest_api_key is not None
             
             if is_trial_account:
                 is_trial_migration = True
-                logger.info("Detected trial account migration", trial_user_id=str(user.id))
+                logger.info("Detected trial/guest account migration", trial_user_id=str(user.id))
             
             # Perform the migration
             try:

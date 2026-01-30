@@ -28,7 +28,7 @@ class ApiKey(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     access_token = Column(String, nullable=False, unique=True)
-    plan_code = Column(Enum('PRO_M', 'PRO_Y', 'TRIAL', name='plan_code_enum'), nullable=False)
+    plan_code = Column(Enum('PRO_M', 'PRO_Y', 'TRIAL', 'GUEST', name='plan_code_enum'), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
