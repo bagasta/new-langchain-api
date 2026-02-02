@@ -97,3 +97,6 @@ frontend
 .env
 .env
 .env
+
+BUGFIX_OAUTH_FLOW.mddocs/CORS_OPTIONS_400_FIX.md
+docs/CORS_OPTIONS_400_FIX.md

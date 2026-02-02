@@ -217,15 +217,7 @@ async def google_auth_post(
         agent_id or (str(request.agent_id) if request and request.agent_id else None),
         request,
     )
-    return await _init_google_auth(
-        current_user,
-        auth_service,
-        tool_service,
-        tools,
-        scopes,
-        agent_id or (str(request.agent_id) if request and request.agent_id else None),
-        request,
-    )
+
 
 
 @router.get("/google/login", response_model=GoogleAuthResponse)
@@ -301,6 +293,7 @@ async def migrate_trial_to_google(
     auth_data = auth_service.create_google_auth_url(
         user_id=str(request.trial_user_id),
         scopes=DEFAULT_GOOGLE_SCOPES,
+        is_migration=True,  # Mark this as migration flow
     )
     
     logger.info(
@@ -380,6 +373,8 @@ async def process_google_callback(
         user_id_from_state = None
         state_user = state_data.get("u") if state_data else None
         state_agent = state_data.get("a") if state_data else None
+        is_migration_flow = state_data.get("m", False) if state_data else False  # Check migration marker
+        
         if state_user:
             try:
                 user_id_from_state = UUID(state_user)
@@ -387,9 +382,8 @@ async def process_google_callback(
             except ValueError:
                 logger.warning("Invalid user id in Google OAuth state", state=state)
 
-        # Check if this is a trial account migration flow
-        is_trial_migration = False
-        if user:
+        # ONLY perform migration logic if this is explicitly marked as a migration flow
+        if is_migration_flow and user:
             # Check by email format
             is_trial_email = user.email.startswith("trial_") and user.email.endswith("@trial.local")
             
@@ -402,9 +396,16 @@ async def process_google_callback(
             
             is_trial_account = is_trial_email or trial_or_guest_api_key is not None
             
-            if is_trial_account:
-                is_trial_migration = True
-                logger.info("Detected trial/guest account migration", trial_user_id=str(user.id))
+            if not is_trial_account:
+                # Migration flow but not a trial account - error
+                logger.error("Migration flow initiated for non-trial account", user_id=str(user.id))
+                frontend_url = settings.FRONTEND_URL
+                error_message = "This+account+is+not+a+trial/guest+account"
+                redirect_url = f"{frontend_url}/auth/error?message={error_message}"
+                return RedirectResponse(url=redirect_url)
+            
+            # IS a trial account in migration flow - proceed with migration
+            logger.info("Detected trial/guest account migration", trial_user_id=str(user.id))
             
             # Perform the migration
             try:
@@ -428,6 +429,8 @@ async def process_google_callback(
                 error_message = str(e.detail).replace(" ", "+")
                 redirect_url = f"{frontend_url}/auth/error?message={error_message}"
                 return RedirectResponse(url=redirect_url)
+        
+        # If NOT a migration flow, continue with normal OAuth token storage (for agent OAuth)
 
         if not user:
              # Try to find user by email from token_data

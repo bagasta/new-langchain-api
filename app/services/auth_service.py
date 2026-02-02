@@ -516,6 +516,7 @@ class AuthService:
         scopes: Optional[Sequence[str]] = None,
         include_granted_scopes: bool = False,
         agent_id: Optional[str] = None,
+        is_migration: bool = False,  # New parameter to mark migration flows
     ) -> Dict[str, str]:
         requested_scopes = normalize_scopes(scopes or DEFAULT_GOOGLE_SCOPES)
         scopes = normalize_scopes(list(requested_scopes) + GOOGLE_IDENTITY_SCOPES)
@@ -527,6 +528,8 @@ class AuthService:
             state_payload["u"] = user_id
         if agent_id:
             state_payload["a"] = agent_id
+        if is_migration:
+            state_payload["m"] = True  # Mark as migration flow
         state_bytes = json.dumps(state_payload).encode("utf-8")
         state = base64.urlsafe_b64encode(state_bytes).decode("utf-8").rstrip("=")
 

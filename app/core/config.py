@@ -42,7 +42,8 @@ class Settings(BaseSettings):
         "http://localhost:5173", 
         "https://unprized-loriann-ceaselessly.ngrok-free.dev/", 
         "https://frontend-app.ngrok-free.app",
-        "https://lfzlwlbz-5173.asse.devtunnels.ms"
+        "https://lfzlwlbz-5173.asse.devtunnels.ms",
+        "https://b75650b1396e.ngrok-free.app",  # Current frontend
     ]
 
     # Database pool tuning
