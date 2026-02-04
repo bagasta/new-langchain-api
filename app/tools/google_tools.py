@@ -318,9 +318,22 @@ class GmailTool(BaseTool):
                 or parameters.get("id")
             )
             if not message_id:
-                raise ValueError("Gmail get_message action requires 'message_id'.")
+                logger.warning(
+                    "Gmail get_message action called without message_id",
+                    parameters_provided=list(parameters.keys()),
+                )
+                raise ValueError(
+                    "Gmail get_message action requires 'message_id' parameter. "
+                    "Use gmail_list_messages or gmail_read_messages to get message IDs first."
+                )
             message_format = (parameters.get("format") or "full").lower()
+            logger.debug(
+                "Gmail get_message executing",
+                message_id=message_id,
+                format=message_format,
+            )
             return self._get_single_message(service, message_id, message_format)
+
 
         raise ValueError(
             "Unknown Gmail action. Supported actions are 'read', 'search', 'send', 'create_draft', 'get_thread', and 'get_message'."
@@ -1386,14 +1399,35 @@ class GoogleCalendarTool(BaseTool):
                     )
 
                 if action == "list_events":
+                    logger.debug(
+                        "Google Calendar list_events executing",
+                        calendar_id=calendar_id,
+                        max_results=parameters.get("max_results", 10),
+                        time_min=parameters.get("time_min"),
+                        time_max=parameters.get("time_max"),
+                    )
                     return self._list_events(service, calendar_id, parameters)
+
                 if action == "create_event":
                     return self._create_event(service, calendar_id, parameters)
                 if action == "get_event":
                     event_id = parameters.get("event_id")
                     if not event_id:
-                        raise ValueError("Google Calendar get_event action requires 'event_id'.")
+                        logger.warning(
+                            "Google Calendar get_event called without event_id",
+                            parameters_provided=list(parameters.keys()),
+                        )
+                        raise ValueError(
+                            "Google Calendar get_event action requires 'event_id' parameter. "
+                            "Use google_calendar_list_events to get event IDs first."
+                        )
+                    logger.debug(
+                        "Google Calendar get_event executing",
+                        event_id=event_id,
+                        calendar_id=calendar_id,
+                    )
                     return self._get_event(service, calendar_id, event_id)
+
             except HttpError as exc:
                 last_error = exc
                 status_code = getattr(getattr(exc, "resp", None), "status", None)
@@ -1642,7 +1676,7 @@ class GmailGetMessageTool(GmailActionTool):
     def __init__(self) -> None:
         super().__init__(
             name="gmail_get_message",
-            description="Retrieve a Gmail message by ID with optional format selection.",
+            description="Retrieve and read the FULL CONTENT of a specific Gmail message by its ID. Use this tool when you need to read the complete details of an email (subject, sender, body, attachments info). The message_id can be obtained from gmail_list_messages or gmail_read_messages tools. Format options: 'full' (complete message with body), 'metadata' (headers only), 'minimal' (basic info), 'raw' (RFC 2822 format).",
             action="get_message",
             schema={
                 "type": "object",
@@ -1673,7 +1707,7 @@ class GmailReadMessagesTool(GmailActionTool):
     def __init__(self) -> None:
         super().__init__(
             name="gmail_read_messages",
-            description="Read one or more Gmail messages, optionally marking them as read.",
+            description="Read one or more Gmail messages with full content. If message_id is provided, reads that specific message. If no message_id is given, retrieves unread messages (up to max_results). Use 'query' parameter for advanced filtering (e.g. 'from:example@email.com' or 'subject:meeting'). Set mark_as_read=true to mark messages as read after retrieving them.",
             action="read",
             schema={
                 "type": "object",
@@ -1722,7 +1756,7 @@ class GmailListMessagesTool(GmailActionTool):
     def __init__(self) -> None:
         super().__init__(
             name="gmail_list_messages",
-            description="List Gmail messages using query parameters without retrieving full bodies.",
+            description="Search and list Gmail messages (returns metadata only: ID, subject, from, to, date, snippet). This is FASTER than gmail_read_messages as it doesn't fetch full message bodies. Use this to find messages first, then use gmail_get_message to read specific ones. Supports Gmail search syntax in 'query' parameter (e.g., 'is:unread', 'from:boss@company.com', 'has:attachment', 'newer_than:7d').",
             action="search",
             schema={
                 "type": "object",
@@ -2038,7 +2072,7 @@ class GoogleCalendarListEventsTool(GoogleCalendarActionTool):
     def __init__(self) -> None:
         super().__init__(
             name="google_calendar_list_events",
-            description="List upcoming events from a Google Calendar.",
+            description="List and retrieve upcoming events from Google Calendar. Returns event details including: ID, summary/title, start/end times, location, attendees. Use 'time_min' and 'time_max' (RFC3339 format) to filter by date range. Use 'calendar_id' to specify which calendar (defaults to 'primary'). Use 'max_results' to limit the number of events returned (default 10).",
             action="list_events",
             schema={
                 "type": "object",
@@ -2122,7 +2156,7 @@ class GoogleCalendarGetEventTool(GoogleCalendarActionTool):
     def __init__(self) -> None:
         super().__init__(
             name="google_calendar_get_event",
-            description="Retrieve a Google Calendar event by ID.",
+            description="Retrieve FULL DETAILS of a specific Google Calendar event by its event_id. Use this when you need complete information about a particular event. The event_id can be obtained from google_calendar_list_events tool. Returns all event properties including: summary, description, location, start/end times, attendees, timezone, recurrence rules, and more.",
             action="get_event",
             schema={
                 "type": "object",
@@ -2244,7 +2278,12 @@ class GoogleDocsTool(BaseTool):
 
                 if action == "get_document":
                     document_id = self._resolve_document_id(parameters)
+                    logger.debug(
+                        "Google Docs get_document executing",
+                        document_id=document_id,
+                    )
                     return self._get_document(docs_service, document_id)
+
                 if action == "append_text":
                     document_id = self._resolve_document_id(parameters)
                     if not parameters.get("content"):
@@ -2564,7 +2603,7 @@ class GoogleDocsListDocumentsTool(GoogleDocsActionTool):
     def __init__(self) -> None:
         super().__init__(
             name="google_docs_list_documents",
-            description="List accessible Google Docs documents.",
+            description="List and search Google Docs documents accessible to the user. Returns document metadata: ID, name/title, web link, modified time. Use 'query' parameter to filter by name (case-insensitive partial match). Use 'max_results' to limit results (default 20, max 100). This is useful for finding documents before reading them with google_docs_get_document.",
             action="list_documents",
             schema={
                 "type": "object",
@@ -2593,7 +2632,7 @@ class GoogleDocsGetDocumentTool(GoogleDocsActionTool):
     def __init__(self) -> None:
         super().__init__(
             name="google_docs_get_document",
-            description="Fetch the full text of a Google Doc.",
+            description="Retrieve and read the FULL TEXT CONTENT of a Google Docs document by its document_id. Returns the document title and complete text content. Use this to read documents. The document_id can be obtained from google_docs_list_documents tool or extracted from a Google Docs URL.",
             action="get_document",
             schema={
                 "type": "object",
