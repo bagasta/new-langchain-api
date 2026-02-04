@@ -1367,6 +1367,7 @@ class GoogleCalendarTool(BaseTool):
         agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         from app.tools.google_tools import GmailTool
+        from app.core.logging import logger
 
         parameters = dict(parameters or {})
 
@@ -2243,6 +2244,7 @@ class GoogleDocsTool(BaseTool):
         agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         from app.tools.google_tools import GmailTool
+        from app.core.logging import logger
 
         gmail_tool = GmailTool()
         credentials = gmail_tool.get_credentials(user_id, auth_service, agent_id)
