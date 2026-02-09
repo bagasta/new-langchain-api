@@ -820,14 +820,24 @@ class ExecutionService:
         has_tools: bool,
         rag_context: str,
     ) -> str:
-        combined_prompt = base_prompt.strip()
+        # Debug logging to identify the source of the error
+        logger.debug(
+            "Composing system prompt",
+            base_prompt_len=len(base_prompt),
+            tool_count=len(tool_names),
+            rag_context_len=len(rag_context) if rag_context else 0,
+        )
+
+        escaped_base_prompt = self._escape_prompt_literal(base_prompt.strip())
+        combined_prompt = escaped_base_prompt
         guidance_blocks: List[str] = []
 
         unique_tool_names = sorted({name for name in tool_names if name})
         if unique_tool_names:
+            safe_tool_names = self._escape_prompt_literal(", ".join(unique_tool_names))
             guidance_blocks.append(
                 "You have access to the following tools to help users: "
-                f"{', '.join(unique_tool_names)}."
+                f"{safe_tool_names}."
             )
             guidance_blocks.append(
                 "If a request requires actions or data from tools you do not have, explain that this agent lacks the necessary tool or permissions instead of looping or fabricating a result."
@@ -894,6 +904,7 @@ class ExecutionService:
             combined_prompt = f"{combined_prompt}\n\n" + "\n\n".join(guidance_blocks)
 
         if rag_context:
+            # rag_context should already be escaped by _build_rag_context
             combined_prompt = f"{combined_prompt}\n\nContext:\n{rag_context}".strip()
 
         return combined_prompt
