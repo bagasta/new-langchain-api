@@ -148,6 +148,84 @@ class AuthService:
         self.db.refresh(db_user)
         return db_user
 
+    async def register_and_activate(
+        self,
+        identifier: str,
+        password: str,
+        plan_code: PlanCode = PlanCode.GUEST,
+    ) -> Dict[str, Any]:
+        """Register a new user and immediately activate them for TRIAL/GUEST plans.
+
+        For TRIAL and GUEST plans:
+          - User is created and immediately set to is_active=True
+          - An API key is generated for the requested plan
+          - Returns user_id, email, access_token, plan_code
+
+        For other plans (PRO_M, PRO_Y):
+          - User is created but remains inactive (is_active=False)
+          - No API key is generated (payment must be completed first)
+          - Returns user_id and email only
+
+        Args:
+            identifier: Email address or phone number.
+            password:   Plaintext password.
+            plan_code:  Desired plan (default: GUEST).
+
+        Returns:
+            Dict with registration result and access_token (for auto-activated plans).
+        """
+        # Create the user (raises if already exists)
+        user = await self.create_user(identifier, password)
+
+        AUTO_ACTIVATE_PLANS = {PlanCode.TRIAL, PlanCode.GUEST}
+
+        if plan_code in AUTO_ACTIVATE_PLANS:
+            # Activate immediately — no payment required for trial/guest
+            user.is_active = True
+            self.db.add(user)
+
+            expires_at = self._calculate_plan_expiration(plan_code)
+            access_token = self.create_access_token(str(user.id))
+
+            api_key = ApiKey(
+                user_id=user.id,
+                access_token=access_token,
+                plan_code=plan_code.value,
+                expires_at=expires_at,
+                created_at=datetime.utcnow(),
+                is_active=True,
+            )
+            self.db.add(api_key)
+            user.api_expires_at = expires_at
+            self.db.commit()
+            self.db.refresh(user)
+            self.db.refresh(api_key)
+
+            return {
+                "status": "success",
+                "user_id": str(user.id),
+                "email": user.email,
+                "is_active": True,
+                "access_token": access_token,
+                "token_type": "bearer",
+                "expires_at": expires_at,
+                "plan_code": plan_code.value,
+                "activated": True,
+            }
+        else:
+            # PRO plans — user stays inactive until payment is confirmed
+            self.db.commit()
+            self.db.refresh(user)
+            return {
+                "status": "success",
+                "user_id": str(user.id),
+                "email": user.email,
+                "is_active": False,
+                "activated": False,
+                "plan_code": plan_code.value,
+                "message": "Account created. Please complete payment to activate.",
+            }
+
     async def generate_api_key(self, identifier: str, password: str, plan_code: PlanCode) -> Dict[str, Any]:
         """Generate API key with plan-based expiration"""
         user = await self.authenticate_user(identifier, password)
