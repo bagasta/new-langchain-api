@@ -292,7 +292,96 @@ async def update_user_password(user_id: str, new_password: str) -> str:
         db.close()
 
 
+
 # =====================================================================
+#  AUTH ME — Google Auth URL generator (works like /auth/me + /google/auth)
+# =====================================================================
+
+@mcp.tool()
+async def auth_me(
+    access_token: str,
+    tool_names: Any = None,
+    agent_id: str = "",
+) -> str:
+    """Generate a Google OAuth authentication URL for a user identified by their
+    access_token (JWT).  Works exactly like the /auth/me + /google/auth endpoints
+    in the Langchain API — no need to know the raw user UUID.
+
+    Call this tool when:
+    - A user needs to connect their Google account after agent creation.
+    - You have the access_token from login_user/register_user but NOT the user UUID.
+
+    Args:
+        access_token: The JWT access token returned by login_user or register_user.
+        tool_names:   List of Google tool names the agent will use
+                      (e.g. ["gmail_send_message", "google_sheets_get_values"]).
+                      Used to derive the required OAuth scopes.
+        agent_id:     Optional UUID of the agent to scope the OAuth grant to.
+
+    Returns:
+        JSON with auth_required (bool), auth_url (str), and user_id (str).
+    """
+    db = SessionLocal()
+    try:
+        # 1. Resolve the user from the JWT
+        auth_service = AuthService(db)
+        token_data = auth_service.verify_token(access_token)
+        if token_data is None:
+            return json.dumps({"status": "error", "error": "Invalid or expired access_token"})
+
+        user_id_str = str(token_data.sub)
+
+        # 2. Derive required scopes from tool_names
+        names = _to_list(tool_names)
+        tool_service = ToolService(db)
+        required_scopes = tool_service.get_required_scopes(names) if names else []
+
+        # 3. Check if the user already has valid tokens (agent-level then user-level)
+        _agent_id_str = agent_id if agent_id else None
+
+        def _has_valid(tokens_list, scopes_set) -> bool:
+            for t in tokens_list:
+                if t.service != "google":
+                    continue
+                if scopes_set.issubset(set(t.scope or [])):
+                    return True
+            return False
+
+        if required_scopes:
+            scope_set = set(required_scopes)
+            agent_tokens = auth_service.get_user_auth_tokens(user_id_str, _agent_id_str)
+            user_tokens = auth_service.get_user_auth_tokens(user_id_str, None)
+            if _has_valid(agent_tokens, scope_set) or _has_valid(user_tokens, scope_set):
+                return json.dumps({
+                    "status": "success",
+                    "auth_required": False,
+                    "auth_url": None,
+                    "user_id": user_id_str,
+                })
+
+        # 4. Generate Google auth URL
+        auth_data = auth_service.create_google_auth_url(
+            user_id=user_id_str,
+            scopes=required_scopes if required_scopes else None,
+            agent_id=_agent_id_str,
+        )
+
+        return json.dumps({
+            "status": "success",
+            "auth_required": True,
+            "auth_url": auth_data.get("auth_url"),
+            "user_id": user_id_str,
+        })
+
+    except Exception as exc:
+        logger.error("MCP auth_me error", error=str(exc))
+        return json.dumps({"status": "error", "error": str(exc)})
+    finally:
+        db.close()
+
+
+# =====================================================================
+
 #  AGENT TOOLS
 # =====================================================================
 
@@ -1245,19 +1334,47 @@ async def check_google_auth(
     db = SessionLocal()
     try:
         names = _to_list(tool_names)
-
         tool_service = ToolService(db)
         required_scopes = tool_service.get_required_scopes(names)
 
         auth_service = AuthService(db)
+
+        # --- Pass 1: check agent-scoped tokens (standard path) ---
         result = auth_service.check_google_auth_requirement(
             user_id, agent_id, required_scopes
         )
 
-        return json.dumps({
-            "status": "success",
-            **result,
-        })
+        if not result.get("auth_required", True):
+            # Agent already has valid tokens — done.
+            return json.dumps({"status": "success", **result})
+
+        # --- Pass 2: fallback to user-level tokens (agent_id = None) ---
+        # This covers the case where the user authenticated via the Langchain
+        # /auth/me or /auth/google flow, where tokens are stored WITHOUT a
+        # specific agent_id.  The original check_google_auth_requirement only
+        # queries tokens that belong to the given agent_id, so it misses these.
+        result_user_level = auth_service.check_google_auth_requirement(
+            user_id, None, required_scopes  # type: ignore[arg-type]
+        )
+
+        if not result_user_level.get("auth_required", True):
+            # User-level token is valid — report auth as not required so
+            # Arthur does NOT send another auth link.
+            logger.info(
+                "check_google_auth: valid user-level token found (agent-scoped lookup missed)",
+                user_id=user_id,
+                agent_id=agent_id,
+            )
+            return json.dumps({
+                "status": "success",
+                "auth_required": False,
+                "auth_url": None,
+                "auth_state": None,
+            })
+
+        # Neither agent-level nor user-level token found — return auth URL
+        # from the first result (already includes agent_id in OAuth state).
+        return json.dumps({"status": "success", **result})
     except Exception as exc:
         logger.error("MCP check_google_auth error", error=str(exc))
         return json.dumps({"status": "error", "error": str(exc)})
