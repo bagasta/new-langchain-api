@@ -1325,7 +1325,7 @@ async def check_google_auth(
 
     Args:
         user_id:    UUID of the user.
-        agent_id:   UUID of the agent.
+        agent_id:   UUID of the agent (optional - falls back to user-level if invalid/empty).
         tool_names: List of tool names that require Google auth.
 
     Returns:
@@ -1339,9 +1339,23 @@ async def check_google_auth(
 
         auth_service = AuthService(db)
 
-        # --- Pass 1: check agent-scoped tokens (standard path) ---
+        # Sanitize agent_id — LLMs sometimes hallucinate or provide stale/invalid UUIDs.
+        # If agent_id is not a valid UUID, fall back to user-level token lookup.
+        sanitized_agent_id: Optional[str] = None
+        if agent_id:
+            try:
+                UUID(str(agent_id))
+                sanitized_agent_id = agent_id
+            except ValueError:
+                logger.warning(
+                    "check_google_auth MCP: invalid agent_id UUID, using user-level fallback",
+                    agent_id=agent_id,
+                )
+                sanitized_agent_id = None
+
+        # --- Pass 1: check agent-scoped tokens (or user-level if agent_id is invalid) ---
         result = auth_service.check_google_auth_requirement(
-            user_id, agent_id, required_scopes
+            user_id, sanitized_agent_id, required_scopes
         )
 
         if not result.get("auth_required", True):

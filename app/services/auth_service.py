@@ -663,16 +663,18 @@ class AuthService:
             userinfo_service = build('oauth2', 'v2', credentials=credentials)
             user_info = userinfo_service.userinfo().get().execute()
 
-            # Validate that we have all requested scopes (Google may add extra ones)
+            # Log if some requested scopes were not granted (Google granular
+            # consent lets users uncheck scopes).  We still save whatever token
+            # we received; check_google_auth_requirement will detect the gap
+            # later and prompt re-auth when the agent actually needs those scopes.
             granted_scopes = set(token_data["scope"])
             required_scopes = set(requested_scopes)
-
-            # Check if all required scopes are granted
             missing_scopes = required_scopes - granted_scopes
             if missing_scopes:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Required scopes not granted: {', '.join(missing_scopes)}"
+                logger.warning(
+                    "Google OAuth: some requested scopes were not granted",
+                    missing=list(missing_scopes),
+                    granted=list(granted_scopes),
                 )
 
             return {
@@ -718,15 +720,16 @@ class AuthService:
         else:
             returned_scopes = normalize_scopes(returned_scopes)
 
-        # Ensure we have at least our required scopes
+        # Log (but don't fail) if some scopes are missing — Google granular
+        # consent allows users to uncheck individual scopes.
         required_scopes = set(scopes)
         granted_scopes = set(returned_scopes)
-
         missing_scopes = required_scopes - granted_scopes
         if missing_scopes:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Required scopes not granted: {', '.join(missing_scopes)}"
+            logger.warning(
+                "Google token exchange: not all requested scopes were granted",
+                missing=list(missing_scopes),
+                granted=list(granted_scopes),
             )
 
         return {
@@ -808,10 +811,14 @@ class AuthService:
             try:
                 agent_uuid = UUID(str(agent_id))
             except ValueError:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid agent_id for auth token lookup",
+                # Invalid UUID format — silently fall back to user-level tokens
+                # instead of raising an error. This prevents hallucinated/stale
+                # agent_ids from the LLM from crashing the auth flow entirely.
+                logger.warning(
+                    "get_user_auth_tokens: invalid agent_id UUID, falling back to user-level tokens",
+                    agent_id=agent_id,
                 )
+                agent_uuid = None
 
         if agent_uuid:
             agent_tokens = (
@@ -906,17 +913,32 @@ class AuthService:
     def check_google_auth_requirement(
         self,
         user_id: str,
-        agent_id: str,
+        agent_id: Optional[str],
         required_scopes: List[str]
     ) -> Dict[str, Any]:
         """
         Check if the user has valid Google tokens satisfying the required scopes.
         Returns a dict with `auth_required`, `auth_url`, and `auth_state`.
+
+        If `agent_id` is not a valid UUID, falls back to user-level token lookup.
         """
         if not required_scopes:
             return {"auth_required": False, "auth_url": None, "auth_state": None}
 
-        tokens = self.get_user_auth_tokens(user_id, agent_id)
+        # Sanitize agent_id — only pass it through if it's a valid UUID
+        sanitized_agent_id: Optional[str] = None
+        if agent_id:
+            try:
+                UUID(str(agent_id))
+                sanitized_agent_id = str(agent_id)
+            except ValueError:
+                logger.warning(
+                    "check_google_auth_requirement: invalid agent_id UUID, using user-level fallback",
+                    agent_id=agent_id,
+                )
+                sanitized_agent_id = None
+
+        tokens = self.get_user_auth_tokens(user_id, sanitized_agent_id)
         required_scope_set = set(required_scopes)
         has_google = False
         
@@ -927,15 +949,26 @@ class AuthService:
             if required_scope_set.issubset(token_scopes):
                 has_google = True
                 break
+
+        # Also try user-level tokens if agent-level lookup failed
+        if not has_google and sanitized_agent_id:
+            user_tokens = self.get_user_auth_tokens(user_id, None)
+            for token in user_tokens:
+                if token.service != "google":
+                    continue
+                token_scopes = set(token.scope or [])
+                if required_scope_set.issubset(token_scopes):
+                    has_google = True
+                    break
         
         if has_google:
             return {"auth_required": False, "auth_url": None, "auth_state": None}
             
-        # Generate Auth URL
+        # Generate Auth URL using the sanitized agent_id (may be None)
         auth_data = self.create_google_auth_url(
             user_id,
             required_scopes,
-            agent_id=agent_id,
+            agent_id=sanitized_agent_id,
         )
         return {
             "auth_required": True,
