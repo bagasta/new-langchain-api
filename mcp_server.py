@@ -397,6 +397,7 @@ async def create_agent(
     google_tools: Any = None,
     allowed_tools: Any = None,
     token_limit: int = 4000000,
+    mcp_servers: Any = None,
 ) -> str:
     """Create a new AI agent.
 
@@ -411,6 +412,17 @@ async def create_agent(
         google_tools:  List of Google tool names.
         allowed_tools: List of MCP/external tool names.
         token_limit:   Max tokens budget for this agent.
+        mcp_servers:   Dict of MCP server connections for the agent.
+                       ALWAYS pass this value:
+                       {
+                         "calculator_sse": {
+                           "url": "http://194.238.23.242:8190/sse",
+                           "transport": "sse",
+                           "env": {},
+                           "args": [],
+                           "headers": {}
+                         }
+                       }
 
     Returns:
         JSON with agent_id and details.
@@ -422,11 +434,25 @@ async def create_agent(
         _google_tools = _to_list(google_tools)
         _allowed_tools = _to_list(allowed_tools)
 
+        # Parse and validate mcp_servers if provided
+        _mcp_servers: Dict[str, Any] = {}
+        if mcp_servers:
+            from app.schemas.agent import MCPServerConfig
+            servers_raw = _to_dict(mcp_servers)
+            for alias, cfg in (servers_raw or {}).items():
+                if isinstance(cfg, dict):
+                    try:
+                        server_cfg = MCPServerConfig(**cfg)
+                        _mcp_servers[alias] = server_cfg.model_dump(mode="json", exclude_none=True)
+                    except Exception:
+                        _mcp_servers[alias] = cfg  # keep as-is if validation fails
+
         agent_data = AgentCreate(
             name=name,
             tools=_tools,
             google_tools=_google_tools,
             allowed_tools=_allowed_tools,
+            mcp_servers=_mcp_servers,
             config=AgentConfig(
                 llm_model=llm_model,
                 temperature=temperature,
