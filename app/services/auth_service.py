@@ -520,7 +520,7 @@ class AuthService:
 
     def create_access_token(self, user_id: str, sub_type: str = "user", agent_id: Optional[str] = None) -> str:
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-        extra_claims = {"type": sub_type}
+        extra_claims: dict = {"type": sub_type, "jti": uuid4().hex}  # jti ensures uniqueness
         if agent_id:
             extra_claims["agent_id"] = agent_id
             
@@ -531,7 +531,36 @@ class AuthService:
         )
 
     def create_agent_api_key(self, user_id: UUID, agent_id: UUID) -> Dict[str, Any]:
-        """Generate a unique API key for a specific agent."""
+        """Generate a unique API key for a specific agent.
+        
+        If an active API key already exists for this agent, returns the existing one
+        instead of creating a duplicate (prevents UniqueViolation on access_token).
+        """
+        # Return existing active key for this agent if it exists
+        existing_key = (
+            self.db.query(ApiKey)
+            .filter(
+                ApiKey.agent_id == agent_id,
+                ApiKey.user_id == user_id,
+                ApiKey.is_active == True,
+            )
+            .order_by(ApiKey.created_at.desc())
+            .first()
+        )
+        if existing_key:
+            logger.info(
+                "Reusing existing agent API key",
+                agent_id=str(agent_id),
+                api_key_id=str(existing_key.id),
+            )
+            return {
+                "access_token": existing_key.access_token,
+                "token_type": "bearer",
+                "expires_at": existing_key.expires_at,
+                "plan_code": existing_key.plan_code,
+                "agent_id": str(agent_id)
+            }
+
         # Get user's current active plan
         user_key = (
             self.db.query(ApiKey)
@@ -549,6 +578,7 @@ class AuthService:
         # Calculate expiration
         expires_at = self._calculate_plan_expiration(PlanCode(plan_code))
         
+        # jti (JWT ID) is injected inside create_access_token to guarantee uniqueness
         access_token = self.create_access_token(str(user_id), sub_type="agent", agent_id=str(agent_id))
         
         api_key = ApiKey(
@@ -562,7 +592,31 @@ class AuthService:
         )
         
         self.db.add(api_key)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            # Race condition: another process inserted concurrently — fetch and return it
+            existing_key = (
+                self.db.query(ApiKey)
+                .filter(
+                    ApiKey.agent_id == agent_id,
+                    ApiKey.user_id == user_id,
+                    ApiKey.is_active == True,
+                )
+                .order_by(ApiKey.created_at.desc())
+                .first()
+            )
+            if existing_key:
+                return {
+                    "access_token": existing_key.access_token,
+                    "token_type": "bearer",
+                    "expires_at": existing_key.expires_at,
+                    "plan_code": existing_key.plan_code,
+                    "agent_id": str(agent_id)
+                }
+            raise
+
         self.db.refresh(api_key)
         
         return {
